@@ -1,0 +1,151 @@
+# System Spec — durable-agents
+
+## Project Identity
+- **Name:** durable-agents
+- **Repo:** [github.com/antonalag/durable-agents](https://github.com/antonalag/durable-agents)
+- **Pitch:** Open-source durable execution runtime for AI agents — crash recovery, outcome journaling, and idempotent operations.
+- **License:** MIT
+- **Language:** TypeScript (Node.js 20+)
+- **Timeline:** 12 weeks, 2-week sprints
+
+---
+
+## Current Status
+
+| Field | Value |
+|-------|-------|
+| **Active Sprint** | Sprint 0 — Project Bootstrap ✅ COMPLETE |
+| **Sprint Start** | — |
+| **Sprint End** | 2026-08-03 |
+| **Milestone** | Compilable project with CI ✅ |
+
+---
+
+## Sprint Tracker
+
+### Sprint 0 — Project Bootstrap (Week 1)
+> **Goal:** Repository structure, tooling, CI, all interfaces defined. Zero functionality but the skeleton compiles and tests run.
+
+- [x] **0.1** Initialize monorepo — `pnpm init`, `tsconfig.json` (strict, ESM), `tsup` config producing ESM + CJS. `pnpm build` succeeds.
+- [x] **0.2** Configure Vitest — `pnpm test` runs. One placeholder test passes. Coverage configured.
+- [x] **0.3** Configure lint + format — ESLint (flat config) + Prettier. `pnpm lint` passes on empty project.
+- [x] **0.4** CI pipeline — GitHub Actions: build + test + lint on push/PR. Badge in README.
+- [x] **0.5** Define all core types — `src/core/types.ts` with all domain interfaces and types.
+- [x] **0.6** Define `JournalStore` interface — `src/stores/interface.ts` with full JSDoc.
+- [x] **0.7** Define adapter interfaces — `src/adapters/types.ts` with `AgentExecutor` and `FrameworkAdapter`.
+- [x] **0.8** README skeleton — Project name, one-sentence pitch, "coming soon" badge.
+- [x] **0.9** `.nvmrc` + `engines` field — Lock Node.js >= 20.
+
+---
+
+### Sprint 1 — Journal Stores (Weeks 2-3)
+> **Goal:** Fully functional persistence layer. Both SQLite and Postgres stores pass identical test suites.
+
+- [ ] **1.1** Implement `SqliteJournalStore` — `better-sqlite3`, auto-creates tables, all methods.
+- [ ] **1.2** Implement `PostgresJournalStore` — `pg` driver, migration script, all methods.
+- [ ] **1.3** Serialization utilities — `serialize()`/`deserialize()` with `superjson`.
+- [ ] **1.4** `computeOperationKey()` — SHA-256, deterministic, collision-resistant.
+- [ ] **1.5** Shared test suite — Abstract test class against any `JournalStore`.
+- [ ] **1.6** SQLite store tests — Shared suite passes. WAL mode for concurrent reads.
+- [ ] **1.7** Postgres store tests — Shared suite passes. Testcontainers or local Docker.
+- [ ] **1.8** Cleanup/TTL — `deleteRunsOlderThan()` on both stores.
+
+---
+
+### Sprint 2 — Runtime Core + Recovery (Weeks 4-5)
+> **Goal:** A plain-TS agent runs with journaling, crashes mid-execution, and recovers automatically.
+
+- [ ] **2.1** `DurableWorkflow` class — `new DurableWorkflow(name, fn, opts)`, `.run(input)` records steps.
+- [ ] **2.2** `ctx.step()` primitive — Records outcome, returns recorded on recovery.
+- [ ] **2.3** `ctx.parallel()` primitive — N concurrent steps, partial failure handled.
+- [ ] **2.4** Heartbeat mechanism — Background interval (10s), cleans up on completion.
+- [ ] **2.5** `RecoveryEngine` — `detectStaleRuns()` + `recover(runId)`.
+- [ ] **2.6** Auto-recovery on startup — Scans and recovers stale runs on instantiation.
+- [ ] **2.7** `IdempotentDispatcher` — `idempotent(key, fn)` checks journal first.
+- [ ] **2.8** Crash recovery integration test — Kill mid-step, restart, verify no duplicates.
+- [ ] **2.9** EventBus — Internal emitter for lifecycle events.
+
+---
+
+### Sprint 3 — Framework Adapters (Weeks 6-7)
+> **Goal:** Real LangGraph.js and Vercel AI SDK agents work with durable-agents.
+
+- [ ] **3.1** LangGraph.js adapter — `createDurableMiddleware(store, config)` as `AgentMiddleware`.
+- [ ] **3.2** LangGraph.js integration test — createReactAgent with middleware, crash + recover.
+- [ ] **3.3** AI SDK adapter — `withDurability(store, ctx, fn)` wrapping generateText/streamText.
+- [ ] **3.4** AI SDK integration test — Records tokens, returns recorded on recovery.
+- [ ] **3.5** `idempotent()` tool decorator — Works with both frameworks.
+- [ ] **3.6** Subpath exports — `durable-agents/langgraph` and `durable-agents/ai-sdk` verified.
+- [ ] **3.7** Peer dependency handling — Package works without adapters installed.
+
+---
+
+### Sprint 4 — Lifecycle Controls (Weeks 8-9)
+> **Goal:** Agents are protected: budgets enforced, loops detected, termination works cleanly.
+
+- [ ] **4.1** `BudgetController` — Checks cost/time/iterations, returns ok/warning/exceeded.
+- [ ] **4.2** Budget integration — Before each step, graceful stop on exceeded.
+- [ ] **4.3** `LoopDetector` — Same-tool, no-progress, and oscillation detection.
+- [ ] **4.4** Loop integration — After each step, triggers configured action.
+- [ ] **4.5** Kill switch API — `runtime.terminate(runId, reason)`.
+- [ ] **4.6** Graceful stop behavior — One final LLM call for summary, then terminate.
+- [ ] **4.7** Budget test — Workflow with budget, verifies termination at threshold.
+- [ ] **4.8** Loop test — Intentional loop, verifies detection fires.
+- [ ] **4.9** Kill switch test — Verifies clean shutdown within 2 seconds.
+
+---
+
+### Sprint 5 — Dashboard + CLI + Polish (Weeks 10-11)
+> **Goal:** Usable product with visibility into agent execution.
+
+- [ ] **5.1** Dashboard server (Hono) — `startDashboard({ store, port })`.
+- [ ] **5.2** Runs list page — Table with sorting and filtering.
+- [ ] **5.3** Run detail page — Step timeline with costs and recovery events.
+- [ ] **5.4** Live updates — SSE endpoint, htmx real-time.
+- [ ] **5.5** CLI entry point — `npx durable-agents dashboard` (SQLite/Postgres).
+- [ ] **5.6** CLI: recover — Scan and recover stale runs.
+- [ ] **5.7** Error handling polish — Typed errors with clear messages.
+- [ ] **5.8** Event hooks API — `runtime.on("run:completed", handler)`.
+- [ ] **5.9** Configuration validation — `RunConfig` validated at construction.
+- [ ] **5.10** Bundle size check — Core < 50KB minified.
+
+---
+
+### Sprint 6 — Docs + Launch (Week 12)
+> **Goal:** Public release. README that sells. Docs that onboard. Demo that convinces.
+
+- [ ] **6.1** README.md — Problem, quickstart, GIF, features, comparison.
+- [ ] **6.2** Docs site (or /docs) — Getting Started, Concepts, API Reference, Guides.
+- [ ] **6.3** Live demo script — Crash + recover demo, recordable.
+- [ ] **6.4** Example: research agent — LangGraph.js + durability.
+- [ ] **6.5** Example: AI SDK tool agent — Idempotent tools.
+- [ ] **6.6** Publish to npm — Correct exports, types, peer deps.
+- [ ] **6.7** GitHub release — v0.1.0 tag + release notes.
+- [ ] **6.8** Launch post — Blog/dev.to article.
+- [ ] **6.9** Social + community — Discord, Reddit, communities.
+
+---
+
+## Decisions Log
+
+| Date | Decision | Rationale |
+|------|----------|-----------|
+| 2026-08-03 | `.kiro/` and `previous-investigation/` gitignored | Internal workspace config and design research, not shipped |
+| 2026-08-03 | Repo public from day 1 | Build in public, attract early feedback |
+| 2026-08-03 | TypeScript pinned to 5.7.3 | tsup DTS plugin incompatible with TS 7.x at time of bootstrap |
+| 2026-08-03 | Code Comments Policy added to constitution | Minimize noise, keep only comments that explain non-obvious behavior |
+| 2026-08-03 | GitHub issue/PR templates added | Standardize contributions early; release workflow deferred to Sprint 6 |
+
+---
+
+## Success Criteria (v0.1)
+
+1. Agent crashes mid-step and resumes correctly in < 2 seconds
+2. Idempotent tools never execute twice for the same operation
+3. LangGraph.js integration works with real `createReactAgent`
+4. Budget enforcement triggers graceful stop
+5. Loop detection fires within configured threshold
+6. Zero-config start: `npm install durable-agents` + 3 lines = working durability
+7. README is compelling (value understood in 30 seconds)
+8. CI green: build + tests + lint pass
+9. npm publish installs cleanly in fresh project

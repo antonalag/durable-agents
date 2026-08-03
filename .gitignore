@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+tmp/
 
 # Environment
 .env
@@ -26,8 +27,8 @@ coverage/
 # Investigation docs (internal design reference)
 previous-investigation/
 
-# pnpm
-.pnpm-debug.log
+# Logs
+*.log
 
 # TypeScript
 *.tsbuildinfo

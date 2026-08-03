@@ -1,0 +1,86 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out the sections below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the bug.
+      placeholder: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Install durable-agents
+        2. Configure store...
+        3. Run workflow...
+        4. Observe error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened. Include error messages or logs if available.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      options:
+        - Runtime core (DurableWorkflow, recovery)
+        - Journal stores (SQLite, Postgres)
+        - "Adapter \u2014 LangGraph.js"
+        - "Adapter \u2014 AI SDK"
+        - Lifecycle controls (budget, loops, kill switch)
+        - CLI / Dashboard
+        - CI/CD pipeline
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide details about your environment.
+      placeholder: |
+        - OS: Ubuntu 24.04
+        - Node.js: 20.x
+        - durable-agents: 0.1.0
+        - Store: SQLite / Postgres
+        - Framework: LangGraph.js / AI SDK / none
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, or log snippets.
+    validations:
+      required: false
