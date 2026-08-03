@@ -6,8 +6,9 @@
   "license": "MIT",
   "author": "durable-agents contributors",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
+  "packageManager": "pnpm@11.18.0",
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
