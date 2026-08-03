@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+
+# Kiro workspace config (private, not shipped)
+.kiro/
+
+# Investigation docs (internal design reference)
+previous-investigation/
+
+# pnpm
+.pnpm-debug.log
+
+# TypeScript
+*.tsbuildinfo
