@@ -14,10 +14,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Active Sprint** | Sprint 0 — Project Bootstrap ✅ COMPLETE |
+| **Active Sprint** | Sprint 1 — Journal Stores ✅ COMPLETE |
 | **Sprint Start** | — |
-| **Sprint End** | 2026-08-03 |
-| **Milestone** | Compilable project with CI ✅ |
+| **Sprint End** | 2026-08-04 |
+| **Milestone** | Working persistence layer with tests ✅ |
 
 ---
 
@@ -41,14 +41,14 @@
 ### Sprint 1 — Journal Stores (Weeks 2-3)
 > **Goal:** Fully functional persistence layer. Both SQLite and Postgres stores pass identical test suites.
 
-- [ ] **1.1** Implement `SqliteJournalStore` — `better-sqlite3`, auto-creates tables, all methods.
-- [ ] **1.2** Implement `PostgresJournalStore` — `pg` driver, migration script, all methods.
-- [ ] **1.3** Serialization utilities — `serialize()`/`deserialize()` with `superjson`.
-- [ ] **1.4** `computeOperationKey()` — SHA-256, deterministic, collision-resistant.
-- [ ] **1.5** Shared test suite — Abstract test class against any `JournalStore`.
-- [ ] **1.6** SQLite store tests — Shared suite passes. WAL mode for concurrent reads.
-- [ ] **1.7** Postgres store tests — Shared suite passes. Testcontainers or local Docker.
-- [ ] **1.8** Cleanup/TTL — `deleteRunsOlderThan()` on both stores.
+- [x] **1.1** Implement `SqliteJournalStore` — `better-sqlite3`, auto-creates tables, all methods.
+- [x] **1.2** Implement `PostgresJournalStore` — `pg` driver, migration script, all methods.
+- [x] **1.3** Serialization utilities — `serialize()`/`deserialize()` with `superjson`.
+- [x] **1.4** `computeOperationKey()` — SHA-256, deterministic, collision-resistant.
+- [x] **1.5** Shared test suite — Abstract test class against any `JournalStore`.
+- [x] **1.6** SQLite store tests — Shared suite passes. WAL mode for concurrent reads.
+- [x] **1.7** Postgres store tests — Shared suite passes. Testcontainers or local Docker.
+- [x] **1.8** Cleanup/TTL — `deleteRunsOlderThan()` on both stores.
 
 ---
 
@@ -135,6 +135,8 @@
 | 2026-08-03 | TypeScript pinned to 5.7.3 | tsup DTS plugin incompatible with TS 7.x at time of bootstrap |
 | 2026-08-03 | Code Comments Policy added to constitution | Minimize noise, keep only comments that explain non-obvious behavior |
 | 2026-08-03 | GitHub issue/PR templates added | Standardize contributions early; release workflow deferred to Sprint 6 |
+| 2026-08-04 | SQLite uses inline DDL, Postgres uses inline constant too | Avoids runtime fs access issues in bundled output |
+| 2026-08-04 | Property-based testing with fast-check (13 properties) | Formal correctness verification for serialization, operation keys, and store behavior |
 
 ---
 
