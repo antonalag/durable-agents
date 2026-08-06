@@ -14,10 +14,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Active Sprint** | Sprint 1 — Journal Stores ✅ COMPLETE |
+| **Active Sprint** | Sprint 2 — Runtime Core + Recovery ✅ COMPLETE |
 | **Sprint Start** | — |
 | **Sprint End** | 2026-08-04 |
-| **Milestone** | Working persistence layer with tests ✅ |
+| **Milestone** | Durable runtime with crash recovery, replay, and auto-recovery ✅ |
 
 ---
 
@@ -55,15 +55,15 @@
 ### Sprint 2 — Runtime Core + Recovery (Weeks 4-5)
 > **Goal:** A plain-TS agent runs with journaling, crashes mid-execution, and recovers automatically.
 
-- [ ] **2.1** `DurableWorkflow` class — `new DurableWorkflow(name, fn, opts)`, `.run(input)` records steps.
-- [ ] **2.2** `ctx.step()` primitive — Records outcome, returns recorded on recovery.
-- [ ] **2.3** `ctx.parallel()` primitive — N concurrent steps, partial failure handled.
-- [ ] **2.4** Heartbeat mechanism — Background interval (10s), cleans up on completion.
-- [ ] **2.5** `RecoveryEngine` — `detectStaleRuns()` + `recover(runId)`.
-- [ ] **2.6** Auto-recovery on startup — Scans and recovers stale runs on instantiation.
-- [ ] **2.7** `IdempotentDispatcher` — `idempotent(key, fn)` checks journal first.
-- [ ] **2.8** Crash recovery integration test — Kill mid-step, restart, verify no duplicates.
-- [ ] **2.9** EventBus — Internal emitter for lifecycle events.
+- [x] **2.1** `DurableWorkflow` class — `new DurableWorkflow(name, fn, opts)`, `.run(input)` records steps.
+- [x] **2.2** `ctx.step()` primitive — Records outcome, returns recorded on recovery.
+- [x] **2.3** `ctx.parallel()` primitive — N concurrent steps, partial failure handled.
+- [x] **2.4** Heartbeat mechanism — Background interval (10s), cleans up on completion.
+- [x] **2.5** `RecoveryEngine` — `detectStaleRuns()` + `recover(runId)`.
+- [x] **2.6** Auto-recovery on startup — Scans and recovers stale runs on instantiation.
+- [x] **2.7** `IdempotentDispatcher` — `idempotent(key, fn)` checks journal first.
+- [x] **2.8** Crash recovery integration test — Kill mid-step, restart, verify no duplicates.
+- [x] **2.9** EventBus — Internal emitter for lifecycle events.
 
 ---
 
@@ -137,6 +137,7 @@
 | 2026-08-03 | GitHub issue/PR templates added | Standardize contributions early; release workflow deferred to Sprint 6 |
 | 2026-08-04 | SQLite uses inline DDL, Postgres uses inline constant too | Avoids runtime fs access issues in bundled output |
 | 2026-08-04 | Property-based testing with fast-check (13 properties) | Formal correctness verification for serialization, operation keys, and store behavior |
+| 2026-08-05 | Sprint 2 complete: runtime core with crash recovery | DurableWorkflow, DurableContext, RecoveryEngine, EventBus, Heartbeat all implemented with 126+ tests |
 
 ---
 
