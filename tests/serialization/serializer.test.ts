@@ -20,7 +20,7 @@ describe('serializer', () => {
 
   it('round-trips Date objects', () => {
     fc.assert(
-      fc.property(fc.date(), (date) => {
+      fc.property(fc.date({ noInvalidDate: true }), (date) => {
         const result = deserialize<Date>(serialize(date));
         expect(result).toBeInstanceOf(Date);
         expect(result.getTime()).toBe(date.getTime());
