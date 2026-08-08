@@ -6,7 +6,7 @@ Open-source durable execution runtime for AI agents — crash recovery, outcome 
 
 ## Status
 
-🚧 **In development** — runtime core complete, framework adapters next.
+🚧 **In development** — framework adapters complete, lifecycle controls next.
 
 ## What's done
 
@@ -19,12 +19,17 @@ Open-source durable execution runtime for AI agents — crash recovery, outcome 
 - ✅ Parallel step execution with partial failure handling
 - ✅ Idempotent operations (`ctx.idempotent(key, fn)`)
 - ✅ Typed EventBus for lifecycle events
-- ✅ Property-based testing with fast-check (126+ tests, 8 correctness properties)
+- ✅ LangGraph.js adapter (`createDurableMiddleware`) with crash recovery
+- ✅ Vercel AI SDK adapter (`withDurability`) with token accounting
+- ✅ Standalone idempotent tool decorator (framework-agnostic)
+- ✅ Subpath exports (`durable-agents/langgraph`, `durable-agents/ai-sdk`)
+- ✅ Optional peer dependencies (works without frameworks installed)
+- ✅ Property-based testing with fast-check (150+ tests, 15 correctness properties)
 
 ## What's next
 
-- 🔜 LangGraph.js and Vercel AI SDK adapters
 - 🔜 Budget enforcement and loop detection
+- 🔜 Kill switch API for graceful termination
 - 🔜 Dashboard and CLI tooling
 
 ## Install
@@ -50,6 +55,35 @@ const workflow = new DurableWorkflow('my-agent', async (ctx, input) => {
 
 // Runs with journaling — if it crashes, it resumes from last completed step
 const result = await workflow.run({ query: 'durable execution patterns' });
+```
+
+### With LangGraph.js
+
+```typescript
+import { createDurableMiddleware } from 'durable-agents/langgraph';
+import { SqliteJournalStore } from 'durable-agents';
+
+const store = new SqliteJournalStore('./agent.db');
+const middleware = createDurableMiddleware({
+  store,
+  config: { name: 'research-agent' },
+});
+
+// Use middleware hooks with your LangGraph agent
+```
+
+### With Vercel AI SDK
+
+```typescript
+import { withDurability } from 'durable-agents/ai-sdk';
+import { SqliteJournalStore } from 'durable-agents';
+
+const store = new SqliteJournalStore('./agent.db');
+
+// Wrap AI SDK calls for durable journaling
+const result = await withDurability({ store, ctx, eventBus }, 'generate', () =>
+  generateText({ model, prompt: 'Hello' })
+);
 ```
 
 ## License

@@ -52,6 +52,16 @@
     "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.10"
   },
+  "peerDependencies": {
+    "@langchain/langgraph": ">=0.2.0",
+    "@langchain/core": ">=0.3.0",
+    "ai": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/langgraph": { "optional": true },
+    "@langchain/core": { "optional": true },
+    "ai": { "optional": true }
+  },
   "dependencies": {
     "better-sqlite3": "^13.0.2",
     "pg": "^8.22.0",
