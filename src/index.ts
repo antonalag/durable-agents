@@ -12,3 +12,5 @@ export { DurableContextImpl } from './runtime/context.js';
 export type { DurableContextOptions, ContextMode } from './runtime/context.js';
 export { RecoveryEngine } from './runtime/recovery.js';
 export { Heartbeat } from './runtime/heartbeat.js';
+export { idempotent } from './adapters/idempotent.js';
+export { DurableAdapterError, PeerDependencyError } from './adapters/errors.js';

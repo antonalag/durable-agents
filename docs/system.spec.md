@@ -14,10 +14,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Active Sprint** | Sprint 2 — Runtime Core + Recovery ✅ COMPLETE |
-| **Sprint Start** | — |
-| **Sprint End** | 2026-08-04 |
-| **Milestone** | Durable runtime with crash recovery, replay, and auto-recovery ✅ |
+| **Active Sprint** | Sprint 3 — Framework Adapters ✅ COMPLETE |
+| **Sprint Start** | 2026-08-05 |
+| **Sprint End** | 2026-08-08 |
+| **Milestone** | LangGraph.js + AI SDK adapters with crash recovery and idempotent tools ✅ |
 
 ---
 
@@ -70,13 +70,13 @@
 ### Sprint 3 — Framework Adapters (Weeks 6-7)
 > **Goal:** Real LangGraph.js and Vercel AI SDK agents work with durable-agents.
 
-- [ ] **3.1** LangGraph.js adapter — `createDurableMiddleware(store, config)` as `AgentMiddleware`.
-- [ ] **3.2** LangGraph.js integration test — createReactAgent with middleware, crash + recover.
-- [ ] **3.3** AI SDK adapter — `withDurability(store, ctx, fn)` wrapping generateText/streamText.
-- [ ] **3.4** AI SDK integration test — Records tokens, returns recorded on recovery.
-- [ ] **3.5** `idempotent()` tool decorator — Works with both frameworks.
-- [ ] **3.6** Subpath exports — `durable-agents/langgraph` and `durable-agents/ai-sdk` verified.
-- [ ] **3.7** Peer dependency handling — Package works without adapters installed.
+- [x] **3.1** LangGraph.js adapter — `createDurableMiddleware(store, config)` as `AgentMiddleware`.
+- [x] **3.2** LangGraph.js integration test — createReactAgent with middleware, crash + recover.
+- [x] **3.3** AI SDK adapter — `withDurability(store, ctx, fn)` wrapping generateText/streamText.
+- [x] **3.4** AI SDK integration test — Records tokens, returns recorded on recovery.
+- [x] **3.5** `idempotent()` tool decorator — Works with both frameworks.
+- [x] **3.6** Subpath exports — `durable-agents/langgraph` and `durable-agents/ai-sdk` verified.
+- [x] **3.7** Peer dependency handling — Package works without adapters installed.
 
 ---
 
@@ -138,6 +138,7 @@
 | 2026-08-04 | SQLite uses inline DDL, Postgres uses inline constant too | Avoids runtime fs access issues in bundled output |
 | 2026-08-04 | Property-based testing with fast-check (13 properties) | Formal correctness verification for serialization, operation keys, and store behavior |
 | 2026-08-05 | Sprint 2 complete: runtime core with crash recovery | DurableWorkflow, DurableContext, RecoveryEngine, EventBus, Heartbeat all implemented with 126+ tests |
+| 2026-08-08 | Sprint 3 complete: framework adapters | LangGraph.js middleware, AI SDK withDurability wrapper, idempotent tool decorator, 7 correctness properties, subpath export isolation verified |
 
 ---
 
