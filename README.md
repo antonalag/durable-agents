@@ -6,7 +6,7 @@ Open-source durable execution runtime for AI agents — crash recovery, outcome 
 
 ## Status
 
-🚧 **In development** — framework adapters complete, lifecycle controls next.
+🚧 **In development** — lifecycle controls complete, dashboard and polish next.
 
 ## What's done
 
@@ -24,13 +24,17 @@ Open-source durable execution runtime for AI agents — crash recovery, outcome 
 - ✅ Standalone idempotent tool decorator (framework-agnostic)
 - ✅ Subpath exports (`durable-agents/langgraph`, `durable-agents/ai-sdk`)
 - ✅ Optional peer dependencies (works without frameworks installed)
-- ✅ Property-based testing with fast-check (150+ tests, 15 correctness properties)
+- ✅ Budget enforcement (`checkBudget`) — cost, steps, and duration limits with warning threshold
+- ✅ Loop detection (`detectLoop`) — same-tool repetition, no-progress, and oscillation patterns
+- ✅ Kill switch API (`workflow.terminate(runId, reason)`) — immediate external termination
+- ✅ Graceful stop — one final summary step before termination on budget/loop triggers
+- ✅ Property-based testing with fast-check (236+ tests, 23 correctness properties)
 
 ## What's next
 
-- 🔜 Budget enforcement and loop detection
-- 🔜 Kill switch API for graceful termination
-- 🔜 Dashboard and CLI tooling
+- 🔜 Dashboard server and CLI tooling
+- 🔜 Documentation site and API reference
+- 🔜 npm publish (v0.1.0)
 
 ## Install
 
@@ -51,9 +55,14 @@ const workflow = new DurableWorkflow('my-agent', async (ctx, input) => {
   const research = await ctx.step('research', () => searchWeb(input.query));
   const analysis = await ctx.step('analyze', () => analyzeResults(research));
   return analysis;
-}, { store });
+}, {
+  store,
+  budget: { maxCostUsd: 5.0, maxSteps: 50 },
+  loopDetection: { maxRepetitions: 3 },
+});
 
-// Runs with journaling — if it crashes, it resumes from last completed step
+// Runs with journaling, budget limits, and loop detection
+// If it crashes, it resumes from last completed step
 const result = await workflow.run({ query: 'durable execution patterns' });
 ```
 
@@ -84,6 +93,13 @@ const store = new SqliteJournalStore('./agent.db');
 const result = await withDurability({ store, ctx, eventBus }, 'generate', () =>
   generateText({ model, prompt: 'Hello' })
 );
+```
+
+### Kill Switch
+
+```typescript
+// Terminate a running workflow externally
+workflow.terminate(runId, 'User requested stop');
 ```
 
 ## License

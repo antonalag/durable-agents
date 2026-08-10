@@ -1,0 +1,2 @@
+npm notice run durable-agents@0.1.0 npx
+npm notice run 'vitest' run --reporter=json
