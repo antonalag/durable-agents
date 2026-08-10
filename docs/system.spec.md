@@ -14,10 +14,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Active Sprint** | Sprint 3 — Framework Adapters ✅ COMPLETE |
-| **Sprint Start** | 2026-08-05 |
-| **Sprint End** | 2026-08-08 |
-| **Milestone** | LangGraph.js + AI SDK adapters with crash recovery and idempotent tools ✅ |
+| **Active Sprint** | Sprint 4 — Lifecycle Controls ✅ COMPLETE |
+| **Sprint Start** | 2026-08-08 |
+| **Sprint End** | 2026-08-10 |
+| **Milestone** | Budget enforcement, loop detection, kill switch, graceful stop ✅ |
 
 ---
 
@@ -83,15 +83,15 @@
 ### Sprint 4 — Lifecycle Controls (Weeks 8-9)
 > **Goal:** Agents are protected: budgets enforced, loops detected, termination works cleanly.
 
-- [ ] **4.1** `BudgetController` — Checks cost/time/iterations, returns ok/warning/exceeded.
-- [ ] **4.2** Budget integration — Before each step, graceful stop on exceeded.
-- [ ] **4.3** `LoopDetector` — Same-tool, no-progress, and oscillation detection.
-- [ ] **4.4** Loop integration — After each step, triggers configured action.
-- [ ] **4.5** Kill switch API — `runtime.terminate(runId, reason)`.
-- [ ] **4.6** Graceful stop behavior — One final LLM call for summary, then terminate.
-- [ ] **4.7** Budget test — Workflow with budget, verifies termination at threshold.
-- [ ] **4.8** Loop test — Intentional loop, verifies detection fires.
-- [ ] **4.9** Kill switch test — Verifies clean shutdown within 2 seconds.
+- [x] **4.1** `BudgetController` — Checks cost/time/iterations, returns ok/warning/exceeded.
+- [x] **4.2** Budget integration — Before each step, graceful stop on exceeded.
+- [x] **4.3** `LoopDetector` — Same-tool, no-progress, and oscillation detection.
+- [x] **4.4** Loop integration — After each step, triggers configured action.
+- [x] **4.5** Kill switch API — `runtime.terminate(runId, reason)`.
+- [x] **4.6** Graceful stop behavior — One final LLM call for summary, then terminate.
+- [x] **4.7** Budget test — Workflow with budget, verifies termination at threshold.
+- [x] **4.8** Loop test — Intentional loop, verifies detection fires.
+- [x] **4.9** Kill switch test — Verifies clean shutdown within 2 seconds.
 
 ---
 
@@ -139,6 +139,7 @@
 | 2026-08-04 | Property-based testing with fast-check (13 properties) | Formal correctness verification for serialization, operation keys, and store behavior |
 | 2026-08-05 | Sprint 2 complete: runtime core with crash recovery | DurableWorkflow, DurableContext, RecoveryEngine, EventBus, Heartbeat all implemented with 126+ tests |
 | 2026-08-08 | Sprint 3 complete: framework adapters | LangGraph.js middleware, AI SDK withDurability wrapper, idempotent tool decorator, 7 correctness properties, subpath export isolation verified |
+| 2026-08-10 | Sprint 4 complete: lifecycle controls | BudgetController (pure), LoopDetector (same_tool/no_progress/oscillation), kill switch API, graceful stop state machine, 8 correctness properties, 236+ tests |
 
 ---
 

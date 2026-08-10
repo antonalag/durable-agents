@@ -31,11 +31,23 @@ export interface BudgetConfig {
   warningThreshold?: number;
 }
 
+export interface LoopConfig {
+  /** Number of recent steps to analyze. Default: 10. */
+  windowSize?: number;
+  /** Max consecutive repetitions of the same tool before flagging. Default: 3. */
+  maxRepetitions?: number;
+  /** Max consecutive steps with identical output before flagging no_progress. Default: 4. */
+  maxNoProgressSteps?: number;
+  /** What to do when a loop is detected. Default: 'graceful_stop'. */
+  action?: 'graceful_stop' | 'emit_only';
+}
+
 export interface RunConfig {
   /** Unique name identifying this workflow definition. */
   name: string;
   maxSteps?: number;
   budget?: BudgetConfig;
+  loopDetection?: LoopConfig;
   /** Default: 10000 (10s). */
   heartbeatIntervalMs?: number;
   /** Runs without a heartbeat for this long are considered stale. Default: 30000 (30s). */
