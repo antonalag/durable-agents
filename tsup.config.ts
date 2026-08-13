@@ -5,6 +5,8 @@ export default defineConfig({
     "src/index.ts",
     "src/adapters/langgraph.ts",
     "src/adapters/ai-sdk.ts",
+    "src/dashboard/index.ts",
+    "src/cli.ts",
   ],
   format: ["esm", "cjs"],
   dts: true,
