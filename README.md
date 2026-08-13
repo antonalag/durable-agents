@@ -6,7 +6,7 @@ Open-source durable execution runtime for AI agents — crash recovery, outcome 
 
 ## Status
 
-🚧 **In development** — lifecycle controls complete, dashboard and polish next.
+🚧 **In development** — all sprints complete, preparing for v0.1.0 launch.
 
 ## What's done
 
@@ -24,16 +24,22 @@ Open-source durable execution runtime for AI agents — crash recovery, outcome 
 - ✅ Standalone idempotent tool decorator (framework-agnostic)
 - ✅ Subpath exports (`durable-agents/langgraph`, `durable-agents/ai-sdk`)
 - ✅ Optional peer dependencies (works without frameworks installed)
-- ✅ Budget enforcement (`checkBudget`) — cost, steps, and duration limits with warning threshold
-- ✅ Loop detection (`detectLoop`) — same-tool repetition, no-progress, and oscillation patterns
-- ✅ Kill switch API (`workflow.terminate(runId, reason)`) — immediate external termination
-- ✅ Graceful stop — one final summary step before termination on budget/loop triggers
-- ✅ Property-based testing with fast-check (236+ tests, 23 correctness properties)
+- ✅ Budget enforcement (`checkBudget`) — cost, steps, and duration limits
+- ✅ Loop detection (`detectLoop`) — same-tool, no-progress, oscillation
+- ✅ Kill switch API (`workflow.terminate(runId, reason)`)
+- ✅ Graceful stop — one final summary step before termination
+- ✅ Web dashboard (`startDashboard`) — Hono server with htmx and SSE live updates
+- ✅ CLI (`npx durable-agents dashboard`, `npx durable-agents recover`)
+- ✅ Typed error hierarchy (`DurableError` with machine-readable codes)
+- ✅ Event hooks API (`workflow.on()` / `workflow.off()`)
+- ✅ Configuration validation at construction time
+- ✅ Core bundle: 27.77 KB minified (< 50 KB gate)
+- ✅ Property-based testing with fast-check (324 tests, 34 correctness properties)
 
 ## What's next
 
-- 🔜 Dashboard server and CLI tooling
 - 🔜 Documentation site and API reference
+- 🔜 Live demo and example agents
 - 🔜 npm publish (v0.1.0)
 
 ## Install
@@ -66,6 +72,18 @@ const workflow = new DurableWorkflow('my-agent', async (ctx, input) => {
 const result = await workflow.run({ query: 'durable execution patterns' });
 ```
 
+### Event Hooks
+
+```typescript
+workflow.on('run:completed', (event) => {
+  console.log(`Run ${event.runId} done, cost: $${event.totals.cost}`);
+});
+
+workflow.on('budget:warning', (event) => {
+  console.log(`Budget ${(event.percentUsed * 100).toFixed(0)}% consumed`);
+});
+```
+
 ### With LangGraph.js
 
 ```typescript
@@ -77,29 +95,41 @@ const middleware = createDurableMiddleware({
   store,
   config: { name: 'research-agent' },
 });
-
-// Use middleware hooks with your LangGraph agent
 ```
 
 ### With Vercel AI SDK
 
 ```typescript
 import { withDurability } from 'durable-agents/ai-sdk';
-import { SqliteJournalStore } from 'durable-agents';
 
-const store = new SqliteJournalStore('./agent.db');
-
-// Wrap AI SDK calls for durable journaling
 const result = await withDurability({ store, ctx, eventBus }, 'generate', () =>
   generateText({ model, prompt: 'Hello' })
 );
 ```
 
+### Dashboard
+
+```typescript
+import { startDashboard } from 'durable-agents/dashboard';
+
+const server = await startDashboard({ store, port: 3100 });
+// Open http://localhost:3100 for real-time run monitoring
+```
+
 ### Kill Switch
 
 ```typescript
-// Terminate a running workflow externally
 workflow.terminate(runId, 'User requested stop');
+```
+
+### CLI
+
+```bash
+# Start the monitoring dashboard
+npx durable-agents dashboard --port 3100
+
+# Scan and recover stale runs
+npx durable-agents recover --db ./agent.db
 ```
 
 ## License

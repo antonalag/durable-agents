@@ -14,10 +14,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Active Sprint** | Sprint 4 — Lifecycle Controls ✅ COMPLETE |
-| **Sprint Start** | 2026-08-08 |
-| **Sprint End** | 2026-08-10 |
-| **Milestone** | Budget enforcement, loop detection, kill switch, graceful stop ✅ |
+| **Active Sprint** | Sprint 5 — Dashboard + CLI + Polish ✅ COMPLETE |
+| **Sprint Start** | 2026-08-10 |
+| **Sprint End** | 2026-08-13 |
+| **Milestone** | Hono dashboard, CLI, typed errors, event hooks, config validation, bundle size gate ✅ |
 
 ---
 
@@ -98,16 +98,16 @@
 ### Sprint 5 — Dashboard + CLI + Polish (Weeks 10-11)
 > **Goal:** Usable product with visibility into agent execution.
 
-- [ ] **5.1** Dashboard server (Hono) — `startDashboard({ store, port })`.
-- [ ] **5.2** Runs list page — Table with sorting and filtering.
-- [ ] **5.3** Run detail page — Step timeline with costs and recovery events.
-- [ ] **5.4** Live updates — SSE endpoint, htmx real-time.
-- [ ] **5.5** CLI entry point — `npx durable-agents dashboard` (SQLite/Postgres).
-- [ ] **5.6** CLI: recover — Scan and recover stale runs.
-- [ ] **5.7** Error handling polish — Typed errors with clear messages.
-- [ ] **5.8** Event hooks API — `runtime.on("run:completed", handler)`.
-- [ ] **5.9** Configuration validation — `RunConfig` validated at construction.
-- [ ] **5.10** Bundle size check — Core < 50KB minified.
+- [x] **5.1** Dashboard server (Hono) — `startDashboard({ store, port })`.
+- [x] **5.2** Runs list page — Table with sorting and filtering.
+- [x] **5.3** Run detail page — Step timeline with costs and recovery events.
+- [x] **5.4** Live updates — SSE endpoint, htmx real-time.
+- [x] **5.5** CLI entry point — `npx durable-agents dashboard` (SQLite/Postgres).
+- [x] **5.6** CLI: recover — Scan and recover stale runs.
+- [x] **5.7** Error handling polish — Typed errors with clear messages.
+- [x] **5.8** Event hooks API — `runtime.on("run:completed", handler)`.
+- [x] **5.9** Configuration validation — `RunConfig` validated at construction.
+- [x] **5.10** Bundle size check — Core < 50KB minified.
 
 ---
 
@@ -140,6 +140,7 @@
 | 2026-08-05 | Sprint 2 complete: runtime core with crash recovery | DurableWorkflow, DurableContext, RecoveryEngine, EventBus, Heartbeat all implemented with 126+ tests |
 | 2026-08-08 | Sprint 3 complete: framework adapters | LangGraph.js middleware, AI SDK withDurability wrapper, idempotent tool decorator, 7 correctness properties, subpath export isolation verified |
 | 2026-08-10 | Sprint 4 complete: lifecycle controls | BudgetController (pure), LoopDetector (same_tool/no_progress/oscillation), kill switch API, graceful stop state machine, 8 correctness properties, 236+ tests |
+| 2026-08-13 | Sprint 5 complete: dashboard, CLI, polish | Hono dashboard with SSE/htmx, CLI (dashboard + recover), DurableError hierarchy, .on()/.off() hooks, config validation, bundle gate 27.77KB, 324 tests across 56 files |
 
 ---
 
