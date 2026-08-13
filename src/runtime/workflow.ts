@@ -3,6 +3,7 @@ import type {
   BudgetConfig,
   BudgetWarningEvent,
   BudgetExceededEvent,
+  EventMap,
   ExecutionRun,
   LoopConfig,
   LoopDetectedEvent,
@@ -11,8 +12,10 @@ import type {
   RunCompletedEvent,
   RunFailedEvent,
 } from '../core/types.js';
+import { DurableError } from '../errors.js';
 import type { JournalStore } from '../stores/interface.js';
 import { checkBudget } from './budget.js';
+import { validateRunConfig } from './config-validation.js';
 import { DurableContextImpl } from './context.js';
 import { EventBus } from './event-bus.js';
 import { Heartbeat } from './heartbeat.js';
@@ -86,11 +89,13 @@ export class DurableWorkflow<TInput, TOutput> {
     const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? 10_000;
     const staleTimeoutMs = opts.staleTimeoutMs ?? 30_000;
 
-    if (heartbeatIntervalMs >= staleTimeoutMs) {
-      throw new Error(
-        `heartbeatIntervalMs (${heartbeatIntervalMs}) must be less than staleTimeoutMs (${staleTimeoutMs})`,
-      );
-    }
+    validateRunConfig({
+      name,
+      heartbeatIntervalMs,
+      staleTimeoutMs,
+      budget: opts.budget,
+      loopDetection: opts.loopDetection,
+    });
 
     this.name = name;
     this.fn = fn;
@@ -104,6 +109,14 @@ export class DurableWorkflow<TInput, TOutput> {
     if (opts.autoRecover) {
       queueMicrotask(() => void this.recoverStaleRuns());
     }
+  }
+
+  on<K extends keyof EventMap>(type: K, handler: (event: EventMap[K]) => void): void {
+    this.eventBus.on(type, handler);
+  }
+
+  off<K extends keyof EventMap>(type: K, handler: (event: EventMap[K]) => void): void {
+    this.eventBus.off(type, handler);
   }
 
   async run(input: TInput, options?: { signal?: AbortSignal }): Promise<TOutput> {
@@ -315,7 +328,7 @@ export class DurableWorkflow<TInput, TOutput> {
   terminate(runId: string, reason: string): void {
     const abortController = this.activeRuns.get(runId);
     if (!abortController) {
-      throw new Error(`Run ${runId} is not active`);
+      throw new DurableError('RUN_TERMINATED', `Run ${runId} is not active`);
     }
 
     const lifecycle = this.lifecycleStates.get(runId);

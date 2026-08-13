@@ -1,6 +1,9 @@
 export * from './core/types.js';
 export * from './stores/interface.js';
 export * from './adapters/types.js';
+export { DurableError } from './errors.js';
+export type { DurableErrorCode } from './errors.js';
+export { validateRunConfig } from './runtime/config-validation.js';
 export { SqliteJournalStore } from './stores/sqlite.js';
 export { PostgresJournalStore } from './stores/postgres.js';
 export { serialize, deserialize } from './serialization/serializer.js';
