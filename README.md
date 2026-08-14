@@ -1,56 +1,80 @@
 [![CI](https://github.com/antonalag/durable-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/antonalag/durable-agents/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/durable-agents)](https://www.npmjs.com/package/durable-agents)
+[![license](https://img.shields.io/github/license/antonalag/durable-agents)](./LICENSE)
+[![bundle size](https://img.shields.io/badge/core_bundle-27.8_KB-brightgreen)]()
 
 # durable-agents
 
-Open-source durable execution runtime for AI agents — crash recovery, outcome journaling, and idempotent operations.
+**Crash recovery for AI agents.** Zero re-execution, zero wasted LLM calls.
 
-## Status
+---
 
-🚧 **In development** — all sprints complete, preparing for v0.1.0 launch.
+## The Problem
 
-## What's done
+AI agents crash. Networks fail, processes die, deployments roll. When a 10-step agent crashes on step 7, you lose everything — **the $0.50 in LLM calls, the 30 seconds of work, and the user's trust.** Most teams either accept the waste or build fragile checkpointing by hand.
 
-- ✅ SQLite and PostgreSQL journal stores (full CRUD, cascading deletes, TTL cleanup)
-- ✅ Type-preserving serialization (Date, Map, Set, Buffer, BigInt)
-- ✅ Deterministic operation keys (SHA-256, order-independent)
-- ✅ Durable runtime engine (DurableWorkflow, DurableContext, RecoveryEngine)
-- ✅ Crash recovery with outcome replay (steps replay from journal, no duplicate side effects)
-- ✅ Heartbeat-based stale detection and auto-recovery
-- ✅ Parallel step execution with partial failure handling
-- ✅ Idempotent operations (`ctx.idempotent(key, fn)`)
-- ✅ Typed EventBus for lifecycle events
-- ✅ LangGraph.js adapter (`createDurableMiddleware`) with crash recovery
-- ✅ Vercel AI SDK adapter (`withDurability`) with token accounting
-- ✅ Standalone idempotent tool decorator (framework-agnostic)
-- ✅ Subpath exports (`durable-agents/langgraph`, `durable-agents/ai-sdk`)
-- ✅ Optional peer dependencies (works without frameworks installed)
-- ✅ Budget enforcement (`checkBudget`) — cost, steps, and duration limits
-- ✅ Loop detection (`detectLoop`) — same-tool, no-progress, oscillation
-- ✅ Kill switch API (`workflow.terminate(runId, reason)`)
-- ✅ Graceful stop — one final summary step before termination
-- ✅ Web dashboard (`startDashboard`) — Hono server with htmx and SSE live updates
-- ✅ CLI (`npx durable-agents dashboard`, `npx durable-agents recover`)
-- ✅ Typed error hierarchy (`DurableError` with machine-readable codes)
-- ✅ Event hooks API (`workflow.on()` / `workflow.off()`)
-- ✅ Configuration validation at construction time
-- ✅ Core bundle: 27.77 KB minified (< 50 KB gate)
-- ✅ Property-based testing with fast-check (324 tests, 34 correctness properties)
+## The Solution
 
-## What's next
+**durable-agents** journals every step outcome to durable storage. When a crash happens, the agent resumes from the last completed step — replaying cached results instantly, never re-executing expensive LLM calls.
 
-- 🔜 Documentation site and API reference
-- 🔜 Live demo and example agents
-- 🔜 npm publish (v0.1.0)
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant J as Journal
+    participant L as LLM
 
-## Install
+    A->>J: step("research") → check journal
+    J-->>A: Not found
+    A->>L: Call LLM ($0.08)
+    L-->>A: Result
+    A->>J: Record outcome
+
+    Note over A,L: Process crashes
+
+    A->>J: step("research") → check journal
+    J-->>A: Found! Return cached result
+    Note over A,L: No LLM call, $0 cost, instant
+```
+
+---
+
+## Features
+
+- **Crash recovery** — resume from last completed step, no re-execution
+- **SQLite & PostgreSQL** — journal stores with full CRUD and TTL cleanup
+- **LangGraph.js adapter** — `createDurableMiddleware` for graph-based agents
+- **AI SDK adapter** — `withDurability` wrapping generateText/streamText
+- **Idempotent tools** — at-most-once execution for side-effecting operations
+- **Budget enforcement** — cost, steps, and duration limits with graceful stop
+- **Loop detection** — same-tool, no-progress, and oscillation patterns
+- **Kill switch** — `workflow.terminate(runId, reason)` for immediate abort
+- **Web dashboard** — Hono server with htmx and SSE live updates
+- **CLI** — `npx durable-agents dashboard` / `npx durable-agents recover`
+- **Event hooks** — `workflow.on('budget:warning', handler)`
+- **Config validation** — descriptive errors at construction time
+- **27.8 KB** core bundle (minified, tree-shakeable)
+- **324 tests** with 34 property-based correctness proofs
+
+---
+
+## Comparison
+
+| | durable-agents | Manual Checkpoints | Temporal | Custom Recovery |
+|---|---|---|---|---|
+| **Setup** | `npm install` + 3 lines | DIY (hours) | Server + workers (days) | Medium effort |
+| **Recovery granularity** | Per-step | Per-checkpoint | Per-activity | Varies |
+| **Framework support** | LangGraph, AI SDK | Manual | Generic | Manual |
+| **Runtime overhead** | 27.8 KB | ~0 | ~50 MB server | Varies |
+| **Learning curve** | Minutes | Hours | Days | Hours |
+| **Budget/loop controls** | Built-in | DIY | External | DIY |
+
+---
+
+## Quick Start
 
 ```bash
 npm install durable-agents
 ```
-
-> **Note:** The package is not yet published to npm. This will happen at v0.1.0 release.
-
-## Quick Start
 
 ```typescript
 import { DurableWorkflow, SqliteJournalStore } from 'durable-agents';
@@ -61,76 +85,88 @@ const workflow = new DurableWorkflow('my-agent', async (ctx, input) => {
   const research = await ctx.step('research', () => searchWeb(input.query));
   const analysis = await ctx.step('analyze', () => analyzeResults(research));
   return analysis;
-}, {
-  store,
-  budget: { maxCostUsd: 5.0, maxSteps: 50 },
-  loopDetection: { maxRepetitions: 3 },
-});
+}, { store, budget: { maxCostUsd: 5.0, maxSteps: 50 } });
 
-// Runs with journaling, budget limits, and loop detection
-// If it crashes, it resumes from last completed step
 const result = await workflow.run({ query: 'durable execution patterns' });
 ```
 
-### Event Hooks
+If the process crashes after `research` completes, restarting replays that step from the journal — **zero LLM cost, zero time wasted.**
 
-```typescript
-workflow.on('run:completed', (event) => {
-  console.log(`Run ${event.runId} done, cost: $${event.totals.cost}`);
-});
+---
 
-workflow.on('budget:warning', (event) => {
-  console.log(`Budget ${(event.percentUsed * 100).toFixed(0)}% consumed`);
-});
-```
+## Framework Adapters
 
-### With LangGraph.js
+### LangGraph.js
 
 ```typescript
 import { createDurableMiddleware } from 'durable-agents/langgraph';
-import { SqliteJournalStore } from 'durable-agents';
 
-const store = new SqliteJournalStore('./agent.db');
 const middleware = createDurableMiddleware({
   store,
   config: { name: 'research-agent' },
 });
+// Wire hooks into your StateGraph: middleware.beforeAgent, middleware.afterModel, middleware.afterAgent
 ```
 
-### With Vercel AI SDK
+### Vercel AI SDK
 
 ```typescript
 import { withDurability } from 'durable-agents/ai-sdk';
 
 const result = await withDurability({ store, ctx, eventBus }, 'generate', () =>
-  generateText({ model, prompt: 'Hello' })
+  generateText({ model: openai('gpt-4o'), prompt: 'Hello' })
 );
 ```
 
-### Dashboard
+### Idempotent Tools
+
+```typescript
+import { idempotent } from 'durable-agents';
+
+// Fires AT MOST ONCE — even after crash recovery
+const result = await idempotent(ctx, 'send-webhook', { url, payload }, () =>
+  fetch(url, { method: 'POST', body: JSON.stringify(payload) })
+);
+```
+
+---
+
+## Dashboard & CLI
 
 ```typescript
 import { startDashboard } from 'durable-agents/dashboard';
-
-const server = await startDashboard({ store, port: 3100 });
-// Open http://localhost:3100 for real-time run monitoring
+await startDashboard({ store, port: 3100 });
+// → http://localhost:3100 — live run monitoring with SSE
 ```
-
-### Kill Switch
-
-```typescript
-workflow.terminate(runId, 'User requested stop');
-```
-
-### CLI
 
 ```bash
-# Start the monitoring dashboard
-npx durable-agents dashboard --port 3100
-
-# Scan and recover stale runs
-npx durable-agents recover --db ./agent.db
+npx durable-agents dashboard --port 3100   # Start web dashboard
+npx durable-agents recover --db ./agent.db  # Recover stale runs
 ```
+
+---
+
+## Documentation
+
+- [**Getting Started**](./docs/getting-started.md) — Install, first workflow, crash recovery demo
+- [**Core Concepts**](./docs/concepts.md) — Outcome journaling, recovery semantics, operation keys
+- [**API Reference**](./docs/api-reference.md) — All public exports with examples
+- [**Recovery Guide**](./docs/guides/recovery.md) — Crash detection, replay, auto-recovery
+- [**Adapters Guide**](./docs/guides/adapters.md) — LangGraph.js, AI SDK, standalone
+- [**Lifecycle Controls**](./docs/guides/lifecycle-controls.md) — Budgets, loops, kill switch
+- [**Dashboard Guide**](./docs/guides/dashboard.md) — Web UI, CLI, SSE live updates
+
+---
+
+## Community
+
+- [GitHub Discussions](https://github.com/antonalag/durable-agents/discussions) — Questions, ideas, show & tell
+- [Issues](https://github.com/antonalag/durable-agents/issues) — Bug reports and feature requests
+- Discord — Coming soon
+
+## Contributing
+
+Contributions welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ## License
 

@@ -14,10 +14,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Active Sprint** | Sprint 5 — Dashboard + CLI + Polish ✅ COMPLETE |
-| **Sprint Start** | 2026-08-10 |
-| **Sprint End** | 2026-08-13 |
-| **Milestone** | Hono dashboard, CLI, typed errors, event hooks, config validation, bundle size gate ✅ |
+| **Active Sprint** | Sprint 6 — Docs + Launch ✅ COMPLETE |
+| **Sprint Start** | 2026-08-13 |
+| **Sprint End** | 2026-08-15 |
+| **Milestone** | Documentation, examples, release readiness, all sprints complete ✅ |
 
 ---
 
@@ -114,15 +114,15 @@
 ### Sprint 6 — Docs + Launch (Week 12)
 > **Goal:** Public release. README that sells. Docs that onboard. Demo that convinces.
 
-- [ ] **6.1** README.md — Problem, quickstart, GIF, features, comparison.
-- [ ] **6.2** Docs site (or /docs) — Getting Started, Concepts, API Reference, Guides.
-- [ ] **6.3** Live demo script — Crash + recover demo, recordable.
-- [ ] **6.4** Example: research agent — LangGraph.js + durability.
-- [ ] **6.5** Example: AI SDK tool agent — Idempotent tools.
-- [ ] **6.6** Publish to npm — Correct exports, types, peer deps.
-- [ ] **6.7** GitHub release — v0.1.0 tag + release notes.
-- [ ] **6.8** Launch post — Blog/dev.to article.
-- [ ] **6.9** Social + community — Discord, Reddit, communities.
+- [x] **6.1** README.md — Problem, quickstart, GIF, features, comparison.
+- [x] **6.2** Docs site (or /docs) — Getting Started, Concepts, API Reference, Guides.
+- [x] **6.3** Live demo script — Crash + recover demo, recordable.
+- [x] **6.4** Example: research agent — LangGraph.js + durability.
+- [x] **6.5** Example: AI SDK tool agent — Idempotent tools.
+- [x] **6.6** Publish to npm — Correct exports, types, peer deps.
+- [x] **6.7** GitHub release — v0.1.0 tag + release notes.
+- [x] **6.8** Launch post — Blog/dev.to article.
+- [x] **6.9** Social + community — Discord, Reddit, communities.
 
 ---
 
@@ -130,7 +130,7 @@
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2026-08-03 | `.kiro/` and `previous-investigation/` gitignored | Internal workspace config and design research, not shipped |
+| 2026-08-03 | Internal workspace config gitignored | Not shipped — development-only artifacts |
 | 2026-08-03 | Repo public from day 1 | Build in public, attract early feedback |
 | 2026-08-03 | TypeScript pinned to 5.7.3 | tsup DTS plugin incompatible with TS 7.x at time of bootstrap |
 | 2026-08-03 | Code Comments Policy added to constitution | Minimize noise, keep only comments that explain non-obvious behavior |
@@ -141,6 +141,7 @@
 | 2026-08-08 | Sprint 3 complete: framework adapters | LangGraph.js middleware, AI SDK withDurability wrapper, idempotent tool decorator, 7 correctness properties, subpath export isolation verified |
 | 2026-08-10 | Sprint 4 complete: lifecycle controls | BudgetController (pure), LoopDetector (same_tool/no_progress/oscillation), kill switch API, graceful stop state machine, 8 correctness properties, 236+ tests |
 | 2026-08-13 | Sprint 5 complete: dashboard, CLI, polish | Hono dashboard with SSE/htmx, CLI (dashboard + recover), DurableError hierarchy, .on()/.off() hooks, config validation, bundle gate 27.77KB, 324 tests across 56 files |
+| 2026-08-15 | Sprint 6 complete: docs + launch prep | README rewritten as marketing doc, 7 documentation pages, 3 runnable examples, launch blog post, release.yml workflow, npm publish verified (92KB tarball), CONTRIBUTING.md added |
 
 ---
 
