@@ -10,7 +10,7 @@
   },
   "packageManager": "pnpm@11.18.0",
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc --declaration --emitDeclarationOnly --outDir dist",
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",

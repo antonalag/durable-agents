@@ -9,7 +9,7 @@ export default defineConfig({
     "src/cli.ts",
   ],
   format: ["esm", "cjs"],
-  dts: true,
+  dts: false,
   clean: true,
   splitting: true,
 });
