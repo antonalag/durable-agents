@@ -3,7 +3,7 @@ import { SqliteJournalStore } from '../../src/stores/sqlite.js';
 import { DurableContextImpl } from '../../src/runtime/context.js';
 import { EventBus } from '../../src/runtime/event-bus.js';
 import { idempotent } from '../../src/adapters/idempotent.js';
-import type { RunConfig, Step } from '../../src/core/types.js';
+import type { RunConfig, Step, RunRecoveredEvent } from '../../src/core/types.js';
 
 vi.mock('../../src/adapters/peer-check.js', () => ({
   assertPeerDependency: vi.fn(),
@@ -72,10 +72,8 @@ describe('Cross-adapter integration', () => {
     const allRuns = await store.listRuns();
     const run2 = allRuns.find((r) => r.runId !== run1.runId)!;
 
-    // The stale run's outcomes were loaded into the replay cursor keyed by
-    // their original operation keys. afterModel computes keys with the new runId,
-    // so these will NOT match the stale run's keys — fresh execution proceeds.
-    // This verifies no *duplicate* outcomes are recorded for the same step IDs.
+    // During replay, afterModel computes keys using the original (stale) runId,
+    // so the cached outcomes match and no new outcomes are recorded.
     for (let i = 0; i < 2; i++) {
       const step: Step = {
         stepId: `new-step-${i}`,
@@ -99,14 +97,38 @@ describe('Cross-adapter integration', () => {
     const failedRun = await store.getRun(run1.runId);
     expect(failedRun!.status).toBe('failed');
 
-    // The new run is running and has its own fresh outcomes (1 per step)
+    // Replayed steps do NOT record new outcomes (they were served from cache)
     const outcomesStep0 = await store.listOutcomes('new-step-0');
-    expect(outcomesStep0.length).toBe(1);
-    expect(outcomesStep0[0].tokens.inputTokens).toBe(200);
+    expect(outcomesStep0.length).toBe(0);
 
     const outcomesStep1 = await store.listOutcomes('new-step-1');
-    expect(outcomesStep1.length).toBe(1);
-    expect(outcomesStep1[0].tokens.outputTokens).toBe(100);
+    expect(outcomesStep1.length).toBe(0);
+
+    // run:recovered fires after replay cursor is exhausted
+    expect(recoveredEvents.length).toBe(1);
+    expect(recoveredEvents[0].totalStepsRecovered).toBe(2);
+
+    // A fresh step after replay DOES record a new outcome with the new run's key
+    const freshStep: Step = {
+      stepId: 'fresh-step-0',
+      runId: run2.runId,
+      nodeName: 'call-2',
+      sequence: 2,
+      status: 'completed',
+      startedAt: new Date(),
+      cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      attempt: 1,
+    };
+    await store.createStep(freshStep);
+    await mw2.afterModel!({
+      runId: run2.runId,
+      step: freshStep,
+      response: { usage_metadata: { input_tokens: 300, output_tokens: 150 } },
+    });
+
+    const freshOutcomes = await store.listOutcomes('fresh-step-0');
+    expect(freshOutcomes.length).toBe(1);
+    expect(freshOutcomes[0].tokens.inputTokens).toBe(300);
 
     // Complete the second run cleanly
     await mw2.afterAgent!({ runId: run2.runId, result: 'done', totals: run2.totals });

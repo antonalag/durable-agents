@@ -137,22 +137,24 @@ export class DurableWorkflow<TInput, TOutput> {
     };
 
     const run: ExecutionRun = await this.store.createRun(config);
+    await this.store.updateRun(run.runId, { status: 'running' });
+    const activeRun: ExecutionRun = { ...run, status: 'running' };
 
-    this.activeRuns.set(run.runId, abortController);
-    this.lifecycleStates.set(run.runId, lifecycle);
+    this.activeRuns.set(activeRun.runId, abortController);
+    this.lifecycleStates.set(activeRun.runId, lifecycle);
 
-    const heartbeat = new Heartbeat(this.store, run.runId, this.heartbeatIntervalMs);
+    const heartbeat = new Heartbeat(this.store, activeRun.runId, this.heartbeatIntervalMs);
     heartbeat.start();
 
     this.eventBus.emit('run:started', {
       type: 'run:started',
       timestamp: new Date(),
-      runId: run.runId,
+      runId: activeRun.runId,
       config,
     } satisfies RunStartedEvent);
 
     const ctx = new DurableContextImpl({
-      run,
+      run: activeRun,
       store: this.store,
       mode: 'fresh',
       replayCursor: new Map(),
@@ -171,7 +173,7 @@ export class DurableWorkflow<TInput, TOutput> {
       if (this.budgetConfig) {
         const elapsed = Date.now() - startTime;
         const budgetResult = checkBudget({
-          totals: run.totals,
+          totals: activeRun.totals,
           elapsedMs: elapsed,
           config: this.budgetConfig,
         });
@@ -181,8 +183,8 @@ export class DurableWorkflow<TInput, TOutput> {
           this.eventBus.emit('budget:warning', {
             type: 'budget:warning',
             timestamp: new Date(),
-            runId: run.runId,
-            currentCost: run.totals.cost,
+            runId: activeRun.runId,
+            currentCost: activeRun.totals.cost,
             budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
             percentUsed: budgetResult.percentUsed,
           } satisfies BudgetWarningEvent);
@@ -192,8 +194,8 @@ export class DurableWorkflow<TInput, TOutput> {
           this.eventBus.emit('budget:exceeded', {
             type: 'budget:exceeded',
             timestamp: new Date(),
-            runId: run.runId,
-            currentCost: run.totals.cost,
+            runId: activeRun.runId,
+            currentCost: activeRun.totals.cost,
             budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
             action: 'graceful_stop',
           } satisfies BudgetExceededEvent);
@@ -224,13 +226,26 @@ export class DurableWorkflow<TInput, TOutput> {
       // Execute step
       const result = await originalStep(name, fn);
 
-      run.totals.steps++;
+      activeRun.totals.steps++;
+
+      // Derive cost from persisted outcomes (idempotent — replayed steps have no new outcomes)
+      const allSteps = await this.store.listSteps(activeRun.runId);
+      let totalCost = 0;
+      for (const s of allSteps) {
+        if (s.status === 'completed') {
+          const outcomes = await this.store.listOutcomes(s.stepId);
+          for (const o of outcomes) {
+            totalCost += o.tokens.costUsd;
+          }
+        }
+      }
+      activeRun.totals.cost = totalCost;
 
       // Post-step: loop detection
       if (this.loopConfig) {
         stepHistory.push({
           nodeName: name,
-          sequence: run.totals.steps,
+          sequence: activeRun.totals.steps,
           outputHash: hashResult(result),
         });
 
@@ -239,9 +254,9 @@ export class DurableWorkflow<TInput, TOutput> {
           this.eventBus.emit('loop:detected', {
             type: 'loop:detected',
             timestamp: new Date(),
-            runId: run.runId,
+            runId: activeRun.runId,
             loopType: loopResult.loopType!,
-            detectedAtStep: run.totals.steps,
+            detectedAtStep: activeRun.totals.steps,
             repetitions: loopResult.repetitions!,
           } satisfies LoopDetectedEvent);
 
@@ -257,14 +272,14 @@ export class DurableWorkflow<TInput, TOutput> {
     try {
       const result = await this.fn(ctx, input);
 
-      await this.store.updateRun(run.runId, { status: 'completed', totals: run.totals });
+      await this.store.updateRun(activeRun.runId, { status: 'completed', totals: activeRun.totals });
 
       this.eventBus.emit('run:completed', {
         type: 'run:completed',
         timestamp: new Date(),
-        runId: run.runId,
+        runId: activeRun.runId,
         result,
-        totals: run.totals,
+        totals: activeRun.totals,
       } satisfies RunCompletedEvent);
 
       return result;
@@ -279,9 +294,9 @@ export class DurableWorkflow<TInput, TOutput> {
         // Graceful stop completed: phase transitioned to terminated and threw AbortError
         if (lifecycle.phase === 'terminated' || lifecycle.phase === 'stopping') {
           const reason = lifecycle.terminationReason ?? 'budget_exceeded';
-          await this.store.updateRun(run.runId, {
+          await this.store.updateRun(activeRun.runId, {
             status: 'terminated',
-            metadata: { ...run.metadata, terminationReason: reason },
+            metadata: { ...activeRun.metadata, terminationReason: reason },
           });
           return undefined as never;
         }
@@ -291,26 +306,26 @@ export class DurableWorkflow<TInput, TOutput> {
       // Graceful stop completed or timed out — mark terminated
       if (lifecycle.phase === 'terminated' || lifecycle.phase === 'stopping') {
         const reason = lifecycle.terminationReason ?? 'budget_exceeded';
-        await this.store.updateRun(run.runId, {
+        await this.store.updateRun(activeRun.runId, {
           status: 'terminated',
-          metadata: { ...run.metadata, terminationReason: reason },
+          metadata: { ...activeRun.metadata, terminationReason: reason },
         });
         return undefined as never;
       }
 
-      await this.store.updateRun(run.runId, { status: 'failed' });
+      await this.store.updateRun(activeRun.runId, { status: 'failed' });
 
       this.eventBus.emit('run:failed', {
         type: 'run:failed',
         timestamp: new Date(),
-        runId: run.runId,
+        runId: activeRun.runId,
         error: error instanceof Error ? error : new Error(String(error)),
       } satisfies RunFailedEvent);
 
       throw error;
     } finally {
-      this.activeRuns.delete(run.runId);
-      this.lifecycleStates.delete(run.runId);
+      this.activeRuns.delete(activeRun.runId);
+      this.lifecycleStates.delete(activeRun.runId);
       heartbeat.stop();
     }
   }
@@ -325,25 +340,37 @@ export class DurableWorkflow<TInput, TOutput> {
     };
   }
 
-  terminate(runId: string, reason: string): void {
+  async terminate(runId: string, reason: string): Promise<void> {
     const abortController = this.activeRuns.get(runId);
     if (!abortController) {
       throw new DurableError('RUN_TERMINATED', `Run ${runId} is not active`);
     }
 
+    // Mark lifecycle locally to prevent new steps from starting
     const lifecycle = this.lifecycleStates.get(runId);
     if (lifecycle) {
       lifecycle.phase = 'terminated';
       lifecycle.terminationReason = 'kill_switch';
     }
 
+    try {
+      // Persist termination state FIRST (durable store is source of truth)
+      await this.store.updateRun(runId, {
+        status: 'terminated',
+        metadata: { terminationReason: 'kill_switch', terminationDetail: reason },
+      });
+    } catch (error) {
+      // Best-effort local cleanup even on store failure
+      abortController.abort();
+      this.activeRuns.delete(runId);
+      this.lifecycleStates.delete(runId);
+      throw error;
+    }
+
+    // Success path: persist succeeded, clean up local state
     abortController.abort();
     this.activeRuns.delete(runId);
     this.lifecycleStates.delete(runId);
-    void this.store.updateRun(runId, {
-      status: 'terminated',
-      metadata: { terminationReason: 'kill_switch', terminationDetail: reason },
-    });
   }
 
   private async recoverStaleRuns(): Promise<void> {

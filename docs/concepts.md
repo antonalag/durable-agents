@@ -261,3 +261,69 @@ workflow.off('step:completed', handler);
 ```
 
 The `EventBus` is also used internally by the dashboard's SSE endpoint to stream live updates to the browser.
+
+## Crash Window (Side-Effect Window)
+
+There is an unavoidable gap between when your function (`fn`) returns and when the runtime persists the outcome to the journal store via `recordOutcome()`. If the process crashes inside this window, the outcome is lost — and on recovery, `fn` will execute again.
+
+```
+fn() returns  ──→  [CRASH WINDOW]  ──→  recordOutcome() persists to store
+```
+
+This is not a bug. It's an inherent property of any system where side effects happen outside a transactional boundary. The library provides **durable replay of persisted outcomes** — once an outcome is written to the journal, it will never re-execute. But it does NOT provide **exactly-once execution of arbitrary external side effects**. Those are fundamentally different guarantees.
+
+### What `ctx.idempotent()` Actually Guarantees
+
+`ctx.idempotent()` provides **at-most-once semantics within a single living process**, contingent on the outcome being durably persisted. If the call completes and the outcome is written to the store, subsequent calls with the same operation key return the cached result without re-executing.
+
+However, at-most-once is **NOT guaranteed** if the process crashes between `fn()` execution and outcome persistence. In that scenario, the outcome was never recorded, so recovery treats it as a fresh step and calls `fn()` again.
+
+### Protecting Non-Idempotent Side Effects
+
+For operations where re-execution is unsafe (charging a credit card, sending a notification, provisioning a resource), rely on **external idempotency keys** rather than the library alone:
+
+- **Stripe:** pass an `Idempotency-Key` header with each charge request.
+- **Databases:** use unique constraints or `INSERT ... ON CONFLICT DO NOTHING`.
+- **Messaging:** use deduplication IDs (SQS `MessageDeduplicationId`, Kafka producer ID).
+
+```typescript
+const charge = await ctx.idempotent('charge-order-123', async () => {
+  // The Stripe idempotency key protects against double-charging
+  // even if this function runs twice due to a crash window re-execution.
+  return await stripe.charges.create(
+    { amount: 2000, currency: 'usd', customer: 'cus_xxx' },
+    { idempotencyKey: 'order-123-charge' }
+  );
+});
+```
+
+The library handles the common case (process stays alive, outcome gets persisted). External idempotency keys handle the edge case (crash in the window). Use both together for operations requiring stronger guarantees.
+
+## Concurrency Model
+
+v0.1.0 is designed for **single-worker recovery only**. One process recovers one stale run at a time. There is no distributed coordination, locking, or fencing built into the runtime.
+
+### What Happens With Multiple Workers
+
+If two workers detect the same stale run and both attempt recovery concurrently, they will both replay cached outcomes (harmless) and then both execute fresh steps (harmful). This produces **duplicate step executions with no fencing** — two charges, two emails, two LLM calls.
+
+The runtime does not detect or prevent this. There is no leader election, no advisory lock, no compare-and-swap on run ownership.
+
+### Safe Deployment Patterns
+
+For v0.1.0, use one of these approaches:
+
+- **Single recovery worker:** Deploy one instance responsible for detecting and recovering stale runs.
+- **External coordination:** Use your infrastructure's leader election (e.g., Kubernetes lease, Redis `SET NX`, database advisory lock) to ensure only one worker recovers a given run.
+- **Partition by run ID:** Route recovery responsibility to a deterministic worker based on run ID hash.
+
+### Future Work
+
+Planned improvements for multi-worker safety:
+
+- **Advisory locks** — acquire a database-level lock on the run before recovery begins.
+- **Leases** — time-bounded ownership claims with automatic expiry.
+- **Fencing tokens** — monotonically increasing tokens that invalidate stale writers.
+- **`SELECT FOR UPDATE`** — row-level locking during stale run detection queries.
+
+Until these are implemented, treat concurrent recovery of the same run as undefined behavior.

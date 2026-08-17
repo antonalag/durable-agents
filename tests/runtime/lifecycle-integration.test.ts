@@ -135,7 +135,7 @@ describe('Lifecycle Integration', () => {
     await barrier;
 
     const runs = await store.listRuns();
-    workflow.terminate(runs[0].runId, 'external kill');
+    void workflow.terminate(runs[0].runId, 'external kill');
     await runPromise;
     await new Promise(resolve => setTimeout(resolve, 50));
 

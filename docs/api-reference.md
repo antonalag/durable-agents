@@ -288,7 +288,7 @@ if (result.detected) console.log(`Loop: ${result.loopType}`);
 
 ### idempotent
 
-At-most-once execution wrapper for tool calls. Computes a deterministic operation key from the run, tool name, and args — if already recorded, returns the cached result.
+Post-persistence at-most-once execution wrapper for tool calls within a single process. Computes a deterministic operation key from the run, tool name, and args — if already recorded, returns the cached result.
 
 ```ts
 function idempotent<TArgs, TResult>(
@@ -319,6 +319,12 @@ const result = await idempotent(ctx, 'web-search', { query: 'AI agents' }, async
   return await searchWeb('AI agents');
 });
 ```
+
+> **Semantics and limitations:**
+>
+> `ctx.idempotent()` provides at-most-once semantics within a single living process, contingent on the outcome being durably persisted. If the process crashes between `fn()` execution and outcome persistence, the function will be called again on recovery — at-most-once is **not** guaranteed across crashes during the persistence window.
+>
+> For external operations requiring stronger guarantees (e.g., sending payments, dispatching webhooks), pair with service-level idempotency keys provided by the downstream service.
 
 ---
 
@@ -464,6 +470,8 @@ interface BudgetConfig {
   warningThreshold?: number;  // Default: 0.8 (fires warning at 80%)
 }
 ```
+
+> **Limitation — `maxCostUsd` is adapter-dependent:** The durable run cost is derived from the sum of `OutcomeRecord.tokens.costUsd` for all completed steps. The core `ctx.step()` path records `costUsd: 0` for all outcomes. Without a framework adapter (LangGraph, AI SDK) that provides real token costs, `maxCostUsd` cannot enforce spending limits. Budget enforcement is post-step: a step may push cost above the limit, and enforcement fires before the next step.
 
 ---
 

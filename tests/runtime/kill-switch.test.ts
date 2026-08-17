@@ -47,18 +47,15 @@ describe('Kill Switch', () => {
     expect(runs.length).toBe(1);
     const runId = runs[0].runId;
 
-    workflow.terminate(runId, 'manual stop');
+    await workflow.terminate(runId, 'manual stop');
 
     await runPromise;
-
-    // Wait for the fire-and-forget store update
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const updatedRun = await store.getRun(runId);
     expect(updatedRun!.status).toBe('terminated');
   });
 
-  it('terminate throws for inactive runId', () => {
+  it('terminate throws for inactive runId', async () => {
     store = new SqliteJournalStore(':memory:');
     const workflow = new DurableWorkflow('kill-test', async () => 'done', {
       store,
@@ -66,7 +63,7 @@ describe('Kill Switch', () => {
       staleTimeoutMs: 5000,
     });
 
-    expect(() => workflow.terminate('nonexistent-run', 'test')).toThrow(
+    await expect(workflow.terminate('nonexistent-run', 'test')).rejects.toThrow(
       'Run nonexistent-run is not active',
     );
   });
@@ -98,10 +95,10 @@ describe('Kill Switch', () => {
     const runs = await store.listRuns();
     const runId = runs[0].runId;
 
-    workflow.terminate(runId, 'first');
+    await workflow.terminate(runId, 'first');
     await runPromise;
 
-    expect(() => workflow.terminate(runId, 'second')).toThrow(
+    await expect(workflow.terminate(runId, 'second')).rejects.toThrow(
       `Run ${runId} is not active`,
     );
   });
@@ -131,11 +128,8 @@ describe('Kill Switch', () => {
     await barrier;
 
     const runs = await store.listRuns();
-    workflow.terminate(runs[0].runId, 'user requested stop');
+    void workflow.terminate(runs[0].runId, 'user requested stop');
     await runPromise;
-
-    // Wait for the fire-and-forget store update
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const updatedRun = await store.getRun(runs[0].runId);
     expect(updatedRun!.metadata.terminationReason).toBe('kill_switch');

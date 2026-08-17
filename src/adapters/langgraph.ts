@@ -54,6 +54,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
   let mode: ContextMode = 'fresh';
   let replayCursor = new Map<string, OutcomeRecord>();
   let totalRecovered = 0;
+  let originalRunId: string | undefined;
 
   const beforeAgent: DurableMiddleware['beforeAgent'] = async () => {
     const staleTimeoutMs = config.staleTimeoutMs ?? 30_000;
@@ -61,6 +62,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
     const existingStale = staleRuns.find((r) => r.config.name === config.name);
 
     if (existingStale) {
+      originalRunId = existingStale.runId;
       try {
         const steps = await store.listSteps(existingStale.runId);
         for (const step of steps) {
@@ -114,7 +116,8 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
   };
 
   const afterModel: DurableMiddleware['afterModel'] = async ({ step, response }) => {
-    const operationKey = computeOperationKey(run.runId, step.nodeName, stepSequence);
+    const keyRunId = (mode === 'replay' && originalRunId) ? originalRunId : run.runId;
+    const operationKey = computeOperationKey(keyRunId, step.nodeName, stepSequence);
 
     const cachedOutcome = replayCursor.get(operationKey);
     if (cachedOutcome) {

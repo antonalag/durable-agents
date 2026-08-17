@@ -72,7 +72,7 @@ Usage:
 
 Commands:
   dashboard    Start the monitoring dashboard web server
-  recover      Scan for and recover stale runs
+  recover      Detect stale runs (does not re-execute)
   help         Show this help message
 
 Options:
@@ -132,24 +132,17 @@ async function runRecover(args: ParsedArgs): Promise<void> {
     return;
   }
 
-  console.log(`Found ${staleRuns.length} stale run(s). Recovering...`);
+  console.log(`Detected ${staleRuns.length} stale run(s):`);
 
-  let recovered = 0;
-  let failed = 0;
+  let detected = 0;
 
   for (const run of staleRuns) {
-    try {
-      console.log(`  Stale run: ${run.runId} (${run.config.name})`);
-      recovered++;
-    } catch (err) {
-      console.error(
-        `  Failed to recover ${run.runId}: ${err instanceof Error ? err.message : err}`,
-      );
-      failed++;
-    }
+    console.log(`  Stale run: ${run.runId} (${run.config.name})`);
+    detected++;
   }
 
-  console.log(`\nRecovery summary: ${recovered} found, ${failed} failed.`);
+  console.log(`\nSummary: ${detected} stale run(s) detected.`);
+  console.log('Note: Run your workflow process with autoRecover enabled to perform actual recovery.');
 }
 
 async function main(): Promise<void> {
