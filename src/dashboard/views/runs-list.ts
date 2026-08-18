@@ -1,4 +1,5 @@
 import type { ExecutionRun } from '../../core/types.js';
+import { escapeHtml } from '../escape.js';
 import { layout } from './layout.js';
 
 function statusBadge(status: string): string {
@@ -19,8 +20,8 @@ export function runsTable(runs: ExecutionRun[]): string {
     .map(
       (run) => `
     <tr>
-      <td><a href="/runs/${run.runId}">${run.runId.slice(0, 8)}…</a></td>
-      <td>${run.config.name}</td>
+      <td><a href="/runs/${escapeHtml(run.runId)}">${escapeHtml(run.runId.slice(0, 8))}…</a></td>
+      <td>${escapeHtml(run.config.name)}</td>
       <td>${statusBadge(run.status)}</td>
       <td>$${run.totals.cost.toFixed(4)}</td>
       <td>${run.totals.steps}</td>

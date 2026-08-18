@@ -125,12 +125,12 @@ describe('Graceful Stop', () => {
     eventBus.on('budget:exceeded', (event) => {
       runIdCapture = event.runId;
       // Override the graceful stop with kill switch
-      workflow.terminate(event.runId, 'kill override');
+      void workflow.terminate(event.runId, 'kill override');
     });
 
     await workflow.run(null);
 
-    // Wait for fire-and-forget store update
+    // Wait for async terminate to complete store write
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Kill switch terminates immediately — no summary step should run

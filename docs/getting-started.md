@@ -85,7 +85,7 @@ console.log('Result:', result);
 store.close();
 ```
 
-Each `ctx.step()` call journals its result. If the process crashes after "search" completes, a recovery run replays the cached result instantly — no duplicate API calls.
+Each `ctx.step()` call journals its result. If the process crashes after "search" completes and its outcome is persisted, a recovery run replays the cached result instantly — no duplicate API calls for persisted steps.
 
 ## Run It
 
@@ -133,10 +133,10 @@ Starting 5-step agent workflow...
 [STEP 4/5] review — checked quality (40ms)
 [STEP 5/5] publish — submitted final output (35ms)
 
-[DONE] Workflow completed! 3 steps recovered, 0 LLM calls wasted.
+[DONE] Workflow completed! 3 steps recovered, 0 additional LLM calls for journaled steps.
 ```
 
-Steps 1-3 were replayed from the journal with zero re-execution. Only steps 4-5 ran fresh. No wasted LLM calls, no lost progress.
+Steps 1-3 were replayed from the journal with zero re-execution of journaled steps. Only steps 4-5 ran fresh. No repeated LLM calls for journaled steps, no lost progress.
 
 ### How It Works
 

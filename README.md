@@ -5,7 +5,7 @@
 
 # durable-agents
 
-**Crash recovery for AI agents.** Zero re-execution, zero wasted LLM calls.
+**Crash recovery for AI agents.** Minimizes wasted LLM calls through outcome caching.
 
 ---
 
@@ -15,7 +15,7 @@ AI agents crash. Networks fail, processes die, deployments roll. When a 10-step 
 
 ## The Solution
 
-**durable-agents** journals every step outcome to durable storage. When a crash happens, the agent resumes from the last completed step — replaying cached results instantly, never re-executing expensive LLM calls.
+**durable-agents** journals every step outcome to durable storage. When a crash happens, the agent resumes from the last journaled step — replaying cached results instantly, minimizing re-execution of expensive LLM calls.
 
 ```mermaid
 sequenceDiagram
@@ -40,11 +40,11 @@ sequenceDiagram
 
 ## Features
 
-- **Crash recovery** — resume from last completed step, no re-execution
+- **Crash recovery** — resume from last journaled step, minimizing re-execution
 - **SQLite & PostgreSQL** — journal stores with full CRUD and TTL cleanup
 - **LangGraph.js adapter** — `createDurableMiddleware` for graph-based agents
 - **AI SDK adapter** — `withDurability` wrapping generateText/streamText
-- **Idempotent tools** — at-most-once execution for side-effecting operations
+- **Idempotent tools** — at-most-once execution within journal boundary for side-effecting operations
 - **Budget enforcement** — cost, steps, and duration limits with graceful stop
 - **Loop detection** — same-tool, no-progress, and oscillation patterns
 - **Kill switch** — `workflow.terminate(runId, reason)` for immediate abort
@@ -90,7 +90,7 @@ const workflow = new DurableWorkflow('my-agent', async (ctx, input) => {
 const result = await workflow.run({ query: 'durable execution patterns' });
 ```
 
-If the process crashes after `research` completes, restarting replays that step from the journal — **zero LLM cost, zero time wasted.**
+If the process crashes after `research` completes, restarting replays that step from the journal — **cached result replayed, no LLM cost for journaled steps.**
 
 ---
 
@@ -123,7 +123,7 @@ const result = await withDurability({ store, ctx, eventBus }, 'generate', () =>
 ```typescript
 import { idempotent } from 'durable-agents';
 
-// Fires AT MOST ONCE — even after crash recovery
+// Within journal boundary: fires at most once per recorded outcome
 const result = await idempotent(ctx, 'send-webhook', { url, payload }, () =>
   fetch(url, { method: 'POST', body: JSON.stringify(payload) })
 );
@@ -155,6 +155,16 @@ npx durable-agents recover --db ./agent.db  # Recover stale runs
 - [**Adapters Guide**](./docs/guides/adapters.md) — LangGraph.js, AI SDK, standalone
 - [**Lifecycle Controls**](./docs/guides/lifecycle-controls.md) — Budgets, loops, kill switch
 - [**Dashboard Guide**](./docs/guides/dashboard.md) — Web UI, CLI, SSE live updates
+
+---
+
+## Known Limitations
+
+| Limitation | Description |
+|---|---|
+| **Single-worker recovery** | v0.1.0 assumes a single process performs recovery. Concurrent recovery of the same stale run will produce duplicate step executions with no fencing. |
+| **Side-effect window** | A crash between `fn()` returning and `recordOutcome()` persisting causes re-execution on recovery. Use external idempotency keys for non-idempotent side effects. |
+| **Post-step budget (maxCostUsd)** | `maxCostUsd` is adapter-dependent: the core `ctx.step` path records `costUsd: 0` for all outcomes. Without a cost-producing adapter (LangGraph, AI SDK), `maxCostUsd` cannot enforce token-cost budgets. Budget enforcement fires AFTER a step completes, before the next step. |
 
 ---
 

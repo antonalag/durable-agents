@@ -1,4 +1,5 @@
 import type { ExecutionRun, Step } from '../../core/types.js';
+import { escapeHtml } from '../escape.js';
 import { layout } from './layout.js';
 
 function statusBadge(status: string): string {
@@ -30,7 +31,7 @@ export function stepTimeline(steps: Step[]): string {
       return `
       <tr${isRecovery ? ' class="recovery-row"' : ''}>
         <td>${step.sequence}</td>
-        <td>${step.nodeName}${recoveryIndicator}</td>
+        <td>${escapeHtml(step.nodeName)}${recoveryIndicator}</td>
         <td>${statusBadge(step.status)}</td>
         <td>${formatDuration(step)}</td>
         <td>${tokenCost}</td>
@@ -60,8 +61,8 @@ export function stepTimeline(steps: Step[]): string {
 export function runDetailPage(run: ExecutionRun, steps: Step[]): string {
   const meta = `
     <dl style="display:grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; margin-bottom: 2rem;">
-      <dt><strong>Run ID</strong></dt><dd>${run.runId}</dd>
-      <dt><strong>Workflow</strong></dt><dd>${run.config.name}</dd>
+      <dt><strong>Run ID</strong></dt><dd>${escapeHtml(run.runId)}</dd>
+      <dt><strong>Workflow</strong></dt><dd>${escapeHtml(run.config.name)}</dd>
       <dt><strong>Status</strong></dt><dd>${statusBadge(run.status)}</dd>
       <dt><strong>Total Cost</strong></dt><dd>$${run.totals.cost.toFixed(4)}</dd>
       <dt><strong>Total Steps</strong></dt><dd>${run.totals.steps}</dd>

@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
 
+semantic-review/
+
 # Build output
 dist/
 tmp/

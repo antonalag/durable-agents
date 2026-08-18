@@ -1,10 +1,12 @@
+import { escapeHtml } from '../escape.js';
+
 export function layout(title: string, body: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} — durable-agents</title>
+  <title>${escapeHtml(title)} — durable-agents</title>
   <script src="/static/htmx.min.js"></script>
   <style>
     body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem; background: #f9fafb; color: #111; }
@@ -27,7 +29,7 @@ export function layout(title: string, body: string): string {
   </style>
 </head>
 <body>
-  <h1>${title}</h1>
+  <h1>${escapeHtml(title)}</h1>
   ${body}
 </body>
 </html>`;

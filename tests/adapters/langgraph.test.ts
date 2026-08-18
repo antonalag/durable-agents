@@ -186,11 +186,8 @@ describe('createDurableMiddleware', () => {
     });
 
     it('returns cached outcome when operationKey matches during replay', async () => {
-      // To test replay, we need the operationKey to match what afterModel will compute.
-      // afterModel uses: computeOperationKey(run.runId, step.nodeName, stepSequence)
-      // We create a stale run, then after beforeAgent creates the new run, we'll
-      // have outcomes keyed with the new run's ID (simulating a real crash/recovery
-      // where the same run re-attempts).
+      // During replay, afterModel computes keys using the originalRunId (the stale
+      // run's ID), so cached outcomes keyed against the stale run are correctly found.
 
       // Step 1: Create a stale run with running status
       const staleRun = await store.createRun({ ...config, name: 'test-wf' });
@@ -244,9 +241,8 @@ describe('createDurableMiddleware', () => {
       const allRuns = await store.listRuns();
       const newRun = allRuns.find((r) => r.runId !== staleRun.runId)!;
 
-      // Step 4: Call afterModel — the key is computed from the NEW run, so it won't
-      // match the stale run's operationKey. This verifies that fresh execution records
-      // a new outcome after the cursor misses.
+      // Step 4: Call afterModel with same nodeName/sequence as the stale step.
+      // The key uses originalRunId during replay, so it matches the cached outcome.
       const replayStep: Step = {
         stepId: 'new-step-1',
         runId: newRun.runId,
@@ -265,11 +261,36 @@ describe('createDurableMiddleware', () => {
         response: { usage_metadata: { input_tokens: 200, output_tokens: 80 } },
       });
 
-      // Since the operationKey differs (new runId vs stale runId), the code
-      // falls through to fresh execution and records a new outcome
+      // The replay cursor matched — no new outcome recorded for the replayed step
       const outcomes = await store.listOutcomes('new-step-1');
-      expect(outcomes.length).toBe(1);
-      expect(outcomes[0].tokens.inputTokens).toBe(200);
+      expect(outcomes.length).toBe(0);
+
+      // run:recovered fires because the replay cursor is exhausted
+      expect(recoveredEvents.length).toBe(1);
+
+      // Step 5: A subsequent fresh step uses the new run's ID for its key
+      const freshStep: Step = {
+        stepId: 'new-step-2',
+        runId: newRun.runId,
+        nodeName: 'llm-call',
+        sequence: 1,
+        status: 'completed',
+        startedAt: new Date(),
+        cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+        attempt: 1,
+      };
+      await store.createStep(freshStep);
+
+      await mw.afterModel!({
+        runId: newRun.runId,
+        step: freshStep,
+        response: { usage_metadata: { input_tokens: 200, output_tokens: 80 } },
+      });
+
+      // Fresh execution — outcome is recorded with the new run's key
+      const freshOutcomes = await store.listOutcomes('new-step-2');
+      expect(freshOutcomes.length).toBe(1);
+      expect(freshOutcomes[0].tokens.inputTokens).toBe(200);
     });
 
     it('handles corrupted outcome data gracefully (starts fresh)', async () => {

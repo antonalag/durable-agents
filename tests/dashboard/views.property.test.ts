@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { runsTable } from '../../src/dashboard/views/runs-list.js';
+import { escapeHtml } from '../../src/dashboard/escape.js';
 import type { ExecutionRun, RunStatus } from '../../src/core/types.js';
 
 const statuses: RunStatus[] = ['pending', 'running', 'completed', 'failed', 'stale', 'terminated'];
@@ -31,8 +32,8 @@ describe('Property 1: Runs list rendering completeness', () => {
       fc.property(fc.array(runArb, { minLength: 1, maxLength: 10 }), (runs) => {
         const html = runsTable(runs);
         for (const run of runs) {
-          expect(html).toContain(run.runId.slice(0, 8));
-          expect(html).toContain(run.config.name);
+          expect(html).toContain(escapeHtml(run.runId.slice(0, 8)));
+          expect(html).toContain(escapeHtml(run.config.name));
           expect(html).toContain(run.status);
         }
       }),

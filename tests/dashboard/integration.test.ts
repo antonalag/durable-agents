@@ -127,15 +127,15 @@ describe('DurableWorkflow typed errors', () => {
   let store: SqliteJournalStore;
   afterEach(() => store?.close());
 
-  it('terminate throws DurableError with RUN_TERMINATED for inactive run', () => {
+  it('terminate throws DurableError with RUN_TERMINATED for inactive run', async () => {
     store = new SqliteJournalStore(':memory:');
     const workflow = new DurableWorkflow('err-test', async () => 'ok', {
       store, heartbeatIntervalMs: 1000, staleTimeoutMs: 5000,
     });
 
-    expect(() => workflow.terminate('nonexistent', 'test')).toThrow(DurableError);
+    await expect(workflow.terminate('nonexistent', 'test')).rejects.toThrow(DurableError);
     try {
-      workflow.terminate('nonexistent', 'test');
+      await workflow.terminate('nonexistent', 'test');
     } catch (err) {
       expect((err as DurableError).code).toBe('RUN_TERMINATED');
     }
