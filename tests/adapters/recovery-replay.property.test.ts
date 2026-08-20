@@ -1,4 +1,3 @@
-// Feature: sprint-3-framework-adapters, Property 4: Recovery replays without re-execution
 import { describe, it, expect, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { randomUUID } from 'node:crypto';
@@ -14,8 +13,6 @@ vi.mock('../../src/adapters/peer-check.js', () => ({
 const { withDurability } = await import('../../src/adapters/ai-sdk.js');
 
 /**
- * **Validates: Requirements 2.1, 2.2, 2.3, 3.3**
- *
  * Property 4: Recovery replays without re-execution
  * For any sequence of recorded outcomes in a stale run's journal, the recovery
  * path returns each recorded result without invoking the original function.

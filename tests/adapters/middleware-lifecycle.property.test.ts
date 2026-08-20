@@ -1,4 +1,3 @@
-// Feature: sprint-3-framework-adapters, Property 5: Middleware lifecycle invariant
 import { describe, it, expect, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { SqliteJournalStore } from '../../src/stores/sqlite.js';
@@ -11,7 +10,6 @@ vi.mock('../../src/adapters/peer-check.js', () => ({
 
 const { createDurableMiddleware } = await import('../../src/adapters/langgraph.js');
 
-// **Validates: Requirements 1.2, 1.4, 2.4**
 describe('Property 5: Middleware lifecycle invariant', () => {
   it('run transitions through running → completed with correct events', async () => {
     await fc.assert(

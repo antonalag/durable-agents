@@ -15,6 +15,7 @@ import { EventBus } from '../runtime/event-bus.js';
 import { Heartbeat } from '../runtime/heartbeat.js';
 import { assertPeerDependency } from './peer-check.js';
 import { computeOperationKey } from '../serialization/operation-key.js';
+import { DurableError } from '../errors.js';
 
 export function extractLangGraphTokens(response: unknown): TokenCost {
   const meta = (response as Record<string, unknown>)?.usage_metadata as
@@ -66,14 +67,12 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
       try {
         const steps = await store.listSteps(existingStale.runId);
         for (const step of steps) {
-          if (step.status === 'completed') {
-            const outcomes = await store.listOutcomes(step.stepId);
-            for (const outcome of outcomes) {
-              if (!outcome.operationKey || outcome.result === undefined) {
-                throw new Error('Corrupted outcome data: missing operationKey or result');
-              }
-              replayCursor.set(outcome.operationKey, outcome);
+          const outcomes = await store.listOutcomes(step.stepId);
+          for (const outcome of outcomes) {
+            if (!outcome.operationKey || outcome.result === undefined) {
+              throw new Error('Corrupted outcome data: missing operationKey or result');
             }
+            replayCursor.set(outcome.operationKey, outcome);
           }
         }
         if (replayCursor.size > 0) {
@@ -137,8 +136,15 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
       return;
     }
 
-    // Fresh execution — record as normal
     const tokens = extractLangGraphTokens(response);
+    const costFn = config.budget?.costFunction;
+    if (costFn) {
+      const costUsd = costFn({ inputTokens: tokens.inputTokens, outputTokens: tokens.outputTokens });
+      if (!Number.isFinite(costUsd) || costUsd < 0) {
+        throw new DurableError('INVALID_CONFIG', `costFunction returned invalid value: ${costUsd}`);
+      }
+      tokens.costUsd = costUsd;
+    }
 
     await store.recordOutcome({
       outcomeId: randomUUID(),

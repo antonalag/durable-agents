@@ -13,6 +13,7 @@ import type {
   RunFailedEvent,
 } from '../core/types.js';
 import { DurableError } from '../errors.js';
+import { computeOperationKey } from '../serialization/operation-key.js';
 import type { JournalStore } from '../stores/interface.js';
 import { checkBudget } from './budget.js';
 import { validateRunConfig } from './config-validation.js';
@@ -167,6 +168,7 @@ export class DurableWorkflow<TInput, TOutput> {
     const startTime = Date.now();
     const warningsEmitted = new Set<string>();
     const requestGracefulStop = DurableWorkflow.createGracefulStopRequester(lifecycle);
+    let runningCost = 0;
 
     ctx.step = async <T>(name: string, fn: () => T | Promise<T>): Promise<T> => {
       // Pre-step: budget check
@@ -223,23 +225,18 @@ export class DurableWorkflow<TInput, TOutput> {
         throw new DOMException('The operation was aborted.', 'AbortError');
       }
 
-      // Execute step
+      const seqBeforeStep = ctx.currentSequence;
       const result = await originalStep(name, fn);
 
       activeRun.totals.steps++;
 
-      // Derive cost from persisted outcomes (idempotent — replayed steps have no new outcomes)
-      const allSteps = await this.store.listSteps(activeRun.runId);
-      let totalCost = 0;
-      for (const s of allSteps) {
-        if (s.status === 'completed') {
-          const outcomes = await this.store.listOutcomes(s.stepId);
-          for (const o of outcomes) {
-            totalCost += o.tokens.costUsd;
-          }
-        }
+      // O(1) cost read — reads from just-persisted outcome
+      const operationKey = computeOperationKey(activeRun.runId, name, seqBeforeStep);
+      const outcome = await this.store.getOutcomeByKey(operationKey);
+      if (outcome) {
+        runningCost += outcome.tokens.costUsd;
+        activeRun.totals.cost = runningCost;
       }
-      activeRun.totals.cost = totalCost;
 
       // Post-step: loop detection
       if (this.loopConfig) {

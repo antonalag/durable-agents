@@ -11,8 +11,6 @@ vi.mock('../../src/adapters/peer-check.js', () => ({
 const { createDurableMiddleware } = await import('../../src/adapters/langgraph.js');
 
 /**
- * Validates: Requirements 11.3, 2.5
- *
  * Proves the LangGraph adapter replay uses the original stale runId for
  * operation key computation during replay, and switches to the new runId
  * for fresh steps after replay exhaustion.

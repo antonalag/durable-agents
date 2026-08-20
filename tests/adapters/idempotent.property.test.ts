@@ -1,4 +1,3 @@
-// Feature: sprint-3-framework-adapters, Property 1: Idempotent execution — at most once
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { SqliteJournalStore } from '../../src/stores/sqlite.js';
@@ -22,7 +21,6 @@ const safeArgs: fc.Arbitrary<unknown> = fc.oneof(
   }),
 );
 
-// **Validates: Requirements 5.1, 5.2**
 describe('Property 1: Idempotent execution — at most once', () => {
   it('calling idempotent N times with same key invokes fn exactly once', async () => {
     await fc.assert(

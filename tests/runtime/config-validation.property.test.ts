@@ -22,7 +22,6 @@ const invalidConfigArb = fc.oneof(
 
 /**
  * Property 11: Configuration validation rejects invalid configs
- * Validates: Requirements 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7
  */
 describe('Property 11: Configuration validation rejects invalid configs', () => {
   it('throws DurableError with INVALID_CONFIG for any invalid config', () => {

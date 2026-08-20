@@ -1,11 +1,7 @@
 import type { ExecutionRun } from '../../core/types.js';
 import { escapeHtml } from '../escape.js';
 import { layout } from './layout.js';
-
-function statusBadge(status: string): string {
-  const cls = `badge badge-${status}`;
-  return `<span class="${cls}">${status}</span>`;
-}
+import { statusBadge } from './status-badge.js';
 
 function formatDate(date: Date): string {
   return date.toISOString().replace('T', ' ').slice(0, 19);

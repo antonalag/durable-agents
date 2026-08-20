@@ -29,6 +29,8 @@ export interface BudgetConfig {
   maxDurationMs?: number;
   /** Fraction (0-1) at which a warning event fires. Default: 0.8 */
   warningThreshold?: number;
+  /** Pure synchronous function that computes USD cost from token counts. No async, no network. */
+  costFunction?: (tokens: { inputTokens: number; outputTokens: number }) => number;
 }
 
 export interface LoopConfig {

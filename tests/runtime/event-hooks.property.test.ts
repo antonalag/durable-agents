@@ -36,7 +36,6 @@ function createMockStore(): JournalStore {
 
 /**
  * Property 10: Event hook delegation round-trip
- * Validates: Requirements 8.1, 8.2
  */
 describe('Property 10: Event hook delegation round-trip', () => {
   it('.on() registers and .off() removes handlers correctly', () => {

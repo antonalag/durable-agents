@@ -30,17 +30,26 @@ export class RecoveryEngine {
 
     const replayCursor = new Map<string, OutcomeRecord>();
     let lastCompletedSequence = -1;
+    const stepsToHeal: string[] = [];
 
     for (const step of steps) {
-      if (step.status === 'completed') {
-        const outcomes = await this.store.listOutcomes(step.stepId);
-        for (const outcome of outcomes) {
-          replayCursor.set(outcome.operationKey, outcome);
-        }
+      const outcomes = await this.store.listOutcomes(step.stepId);
+      for (const outcome of outcomes) {
+        replayCursor.set(outcome.operationKey, outcome);
+      }
+      if (outcomes.length > 0) {
         if (step.sequence > lastCompletedSequence) {
           lastCompletedSequence = step.sequence;
         }
+        if (step.status === 'running') {
+          stepsToHeal.push(step.stepId);
+        }
       }
+    }
+
+    let initialCost = 0;
+    for (const outcome of replayCursor.values()) {
+      initialCost += outcome.tokens.costUsd;
     }
 
     const heartbeatInterval = run.config.heartbeatIntervalMs ?? 10_000;
@@ -60,10 +69,15 @@ export class RecoveryEngine {
     try {
       const result = await fn(ctx, input);
 
+      for (const stepId of stepsToHeal) {
+        await this.store.updateStep(stepId, { status: 'completed', completedAt: new Date() });
+      }
+
       await this.store.updateRun(runId, {
         status: 'completed',
         totals: {
           ...run.totals,
+          cost: initialCost,
           recoveryCount: run.totals.recoveryCount + 1,
         },
       });

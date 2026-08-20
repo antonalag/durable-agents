@@ -1,4 +1,3 @@
-// Feature: sprint-5-dashboard-cli-polish, Property 1-3: Dashboard views
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { runsTable } from '../../src/dashboard/views/runs-list.js';
@@ -25,7 +24,6 @@ const runArb: fc.Arbitrary<ExecutionRun> = fc.record({
   lastHeartbeat: fc.date({ noInvalidDate: true }),
 });
 
-// **Validates: Requirements 2.1**
 describe('Property 1: Runs list rendering completeness', () => {
   it('runsTable contains all fields for every run', () => {
     fc.assert(
@@ -42,7 +40,6 @@ describe('Property 1: Runs list rendering completeness', () => {
   });
 });
 
-// **Validates: Requirements 2.2**
 describe('Property 2: Sorting invariant', () => {
   it('sorted runs maintain ordering for the specified column', () => {
     fc.assert(
@@ -92,7 +89,6 @@ describe('Property 2: Sorting invariant', () => {
   });
 });
 
-// **Validates: Requirements 2.3**
 describe('Property 3: Filter correctness', () => {
   it('filtered runs all match the filter value and no matching run is absent', () => {
     fc.assert(

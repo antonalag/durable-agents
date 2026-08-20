@@ -148,7 +148,7 @@
 ## Success Criteria (v0.1)
 
 1. Agent crashes mid-step and resumes correctly in < 2 seconds
-2. Idempotent tools never execute twice for the same operation
+2. Idempotent tools do not re-execute for operations whose outcomes have been durably persisted
 3. LangGraph.js integration works with real `createReactAgent`
 4. Budget enforcement triggers graceful stop
 5. Loop detection fires within configured threshold

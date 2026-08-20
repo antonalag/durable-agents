@@ -2,10 +2,6 @@ import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { parseArgs } from '../../src/cli.js';
 
-/**
- * Feature: sprint-5-dashboard-cli-polish, Property 8: CLI argument parsing correctness
- * Validates: Requirements 5.2, 5.3, 6.3
- */
 describe('Property 8: CLI argument parsing correctness', () => {
   it('parsed args match input values for valid combinations', () => {
     fc.assert(

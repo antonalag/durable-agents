@@ -5,9 +5,6 @@ import type { BudgetConfig } from '../../src/core/types.js';
 
 const SEVERITY: Record<BudgetStatus, number> = { ok: 0, warning: 1, exceeded: 2 };
 
-/**
- * Validates: Requirements 1.1, 1.2, 1.3, 1.4
- */
 describe('Property 1: Budget severity monotonicity', () => {
   it('status equals the most severe across all configured limits', () => {
     fc.assert(
@@ -66,9 +63,6 @@ describe('Property 1: Budget severity monotonicity', () => {
   });
 });
 
-/**
- * Validates: Requirements 1.5
- */
 describe('Property 2: No-config budget is always ok', () => {
   it('returns ok with percentUsed 0 regardless of totals', () => {
     fc.assert(

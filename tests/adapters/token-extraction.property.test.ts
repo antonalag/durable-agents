@@ -3,9 +3,6 @@ import * as fc from 'fast-check';
 import { extractLangGraphTokens } from '../../src/adapters/langgraph.js';
 import { extractAiSdkTokens } from '../../src/adapters/ai-sdk.js';
 
-/**
- * **Validates: Requirements 1.3, 3.2, 4.1**
- */
 describe('Property 2: Token extraction round-trip', () => {
   it('extractLangGraphTokens extracts exact values from valid response', () => {
     fc.assert(

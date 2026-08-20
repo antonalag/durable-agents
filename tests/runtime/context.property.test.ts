@@ -1,11 +1,9 @@
-// Feature: sprint-2-runtime-core, Property 1: Exactly-once step execution per operationKey
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { SqliteJournalStore } from '../../src/stores/sqlite.js';
 import { DurableContextImpl } from '../../src/runtime/context.js';
 import { EventBus } from '../../src/runtime/event-bus.js';
 
-// Validates: Requirements 2.5, 3.4, 5.4, 8.2
 describe('Property 1: Exactly-once step execution per operationKey', () => {
   it('executing N sequential steps produces exactly N unique OutcomeRecords', async () => {
     await fc.assert(

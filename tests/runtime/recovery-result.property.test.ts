@@ -1,4 +1,3 @@
-// Feature: sprint-2-runtime-core, Property 7: Recovery produces identical result to uninterrupted execution
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { SqliteJournalStore } from '../../src/stores/sqlite.js';
@@ -7,7 +6,6 @@ import { RecoveryEngine } from '../../src/runtime/recovery.js';
 import { EventBus } from '../../src/runtime/event-bus.js';
 import type { WorkflowFn } from '../../src/runtime/workflow.js';
 
-// **Validates: Requirements 8.3**
 describe('Property 7: Recovery produces identical result to uninterrupted execution', () => {
   it('recovered workflow produces the same result as an uninterrupted run', async () => {
     await fc.assert(

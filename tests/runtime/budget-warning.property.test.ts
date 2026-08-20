@@ -6,8 +6,6 @@ import { EventBus } from '../../src/runtime/event-bus.js';
 import type { BudgetWarningEvent } from '../../src/core/types.js';
 
 /**
- * Validates: Requirements 7.3
- *
  * WHEN the warning threshold is crossed, THE EventBus SHALL emit
  * `budget:warning` exactly once per limit type per run (no repeated
  * warnings for the same limit).

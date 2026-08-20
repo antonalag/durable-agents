@@ -20,7 +20,7 @@ class DurableWorkflow<TInput, TOutput> {
   on<K extends keyof EventMap>(type: K, handler: (event: EventMap[K]) => void): void;
   off<K extends keyof EventMap>(type: K, handler: (event: EventMap[K]) => void): void;
   run(input: TInput, options?: { signal?: AbortSignal }): Promise<TOutput>;
-  terminate(runId: string, reason: string): void;
+  terminate(runId: string, reason: string): Promise<void>;
 }
 ```
 
@@ -45,6 +45,11 @@ const workflow = new DurableWorkflow('research', async (ctx, input: string) => {
 
 const result = await workflow.run('quantum computing');
 ```
+
+> **`terminate()` semantics:**
+>
+> - `terminate()` persists the 'terminated' status to the durable store before aborting local execution (persistence-first semantics).
+> - If the store write fails, the error propagates to the caller and the run remains eligible for stale recovery (the abort signal still fires for best-effort local cleanup).
 
 ---
 

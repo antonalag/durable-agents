@@ -1,9 +1,7 @@
-// Feature: sprint-3-framework-adapters, Property 7: Operation key determinism
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { computeOperationKey } from '../../src/serialization/operation-key.js';
 
-// **Validates: Requirements 5.5**
 describe('Property 7: Operation key determinism', () => {
   it('computeOperationKey produces identical output for identical inputs', () => {
     fc.assert(
