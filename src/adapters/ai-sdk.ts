@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { TokenCost } from '../core/types.js';
+import { DurableError } from '../errors.js';
 import type { DurableContextImpl } from '../runtime/context.js';
 import type { EventBus } from '../runtime/event-bus.js';
 import type { JournalStore } from '../stores/interface.js';
@@ -72,6 +73,15 @@ export async function withDurability<T>(
     const result = await fn();
     const durationMs = Date.now() - startMs;
     const tokens = extractAiSdkTokens(result);
+
+    const costFn = durableCtx.ctx.run.config.budget?.costFunction;
+    if (costFn) {
+      const costUsd = costFn({ inputTokens: tokens.inputTokens, outputTokens: tokens.outputTokens });
+      if (!Number.isFinite(costUsd) || costUsd < 0) {
+        throw new DurableError('INVALID_CONFIG', `costFunction returned invalid value: ${costUsd}`);
+      }
+      tokens.costUsd = costUsd;
+    }
 
     if (tokens.inputTokens === 0 && tokens.outputTokens === 0) {
       (eventBus as unknown as { emit(type: string, event: unknown): void }).emit(

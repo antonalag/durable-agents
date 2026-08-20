@@ -1,10 +1,8 @@
-// Feature: sprint-2-runtime-core, Property 6: EventBus delivers to all registered listeners
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { EventBus } from '../../src/runtime/event-bus.js';
 import type { RunStartedEvent, RunConfig } from '../../src/core/types.js';
 
-// Validates: Requirements 9.7, 9.8
 describe('Property 6: EventBus delivers to all registered listeners', () => {
   it('all N registered listeners receive the emitted event, and off() removes delivery', () => {
     fc.assert(

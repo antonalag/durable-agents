@@ -1,5 +1,3 @@
-// Feature: sprint-2-runtime-core
-// Property 2: Recovery replays K cached results and executes (L-K) remaining
 import { describe, it, expect, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { RecoveryEngine } from '../../src/runtime/recovery.js';
@@ -9,7 +7,6 @@ import type { JournalStore } from '../../src/stores/interface.js';
 import type { ExecutionRun, Step, OutcomeRecord } from '../../src/core/types.js';
 import type { DurableContextImpl } from '../../src/runtime/context.js';
 
-// **Validates: Requirements 2.2, 5.2, 8.1, 8.4**
 describe('Property 2: Recovery replays K cached results and executes (L-K) remaining', () => {
   it('replays K cached results and freshly executes (L-K) remaining steps', async () => {
     await fc.assert(

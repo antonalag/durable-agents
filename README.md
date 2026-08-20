@@ -172,7 +172,6 @@ npx durable-agents recover --db ./agent.db  # Recover stale runs
 
 - [GitHub Discussions](https://github.com/antonalag/durable-agents/discussions) — Questions, ideas, show & tell
 - [Issues](https://github.com/antonalag/durable-agents/issues) — Bug reports and feature requests
-- Discord — Coming soon
 
 ## Contributing
 

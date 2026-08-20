@@ -6,8 +6,6 @@ import { EventBus } from '../../src/runtime/event-bus.js';
 import { idempotent } from '../../src/adapters/idempotent.js';
 
 /**
- * **Validates: Requirements 3.5, 5.4**
- *
  * Property 6: Error propagation without recording
  * For any wrapped function that throws an error, the adapter propagates the
  * error without recording a successful outcome, allowing retry on next execution.

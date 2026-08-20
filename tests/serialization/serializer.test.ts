@@ -4,7 +4,6 @@ import { serialize, deserialize } from '../../src/serialization/serializer.js';
 
 describe('serializer', () => {
   // Property 1: Serialization round-trip
-  // Validates: Requirements 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10
   it('round-trips arbitrary JSON-compatible values', () => {
     const safeKeyArb = fc.string().filter((k) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype');
     fc.assert(

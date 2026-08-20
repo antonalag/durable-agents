@@ -4,9 +4,6 @@ import { SqliteJournalStore } from '../../src/stores/sqlite.js';
 import { DurableWorkflow } from '../../src/runtime/workflow.js';
 import { EventBus } from '../../src/runtime/event-bus.js';
 
-/**
- * Validates: Requirements 6.1
- */
 describe('Property 7: Graceful stop allows exactly one more step', () => {
   it('exactly 1 summary step executes after budget exceeded regardless of remaining steps', async () => {
     await fc.assert(

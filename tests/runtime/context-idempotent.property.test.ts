@@ -1,11 +1,9 @@
-// Feature: sprint-2-runtime-core, Property 4: Idempotent executes fn at most once per key
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { SqliteJournalStore } from '../../src/stores/sqlite.js';
 import { DurableContextImpl } from '../../src/runtime/context.js';
 import { EventBus } from '../../src/runtime/event-bus.js';
 
-// **Validates: Requirements 7.1, 7.2, 7.3**
 describe('Property 4: Idempotent executes fn at most once per key', () => {
   it('fn is called exactly once regardless of how many times idempotent is invoked with the same key', async () => {
     await fc.assert(

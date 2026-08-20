@@ -15,10 +15,6 @@ const eventArb: fc.Arbitrary<DurableEvent> = fc.record({
   runId: fc.uuid(),
 }).map(e => e as unknown as DurableEvent);
 
-/**
- * Feature: sprint-5-dashboard-cli-polish, Property 7: SSE event formatting
- * Validates: Requirements 4.1
- */
 describe('Property 7: SSE event formatting', () => {
   it('formatted output has event: line with type and data: line with valid JSON', () => {
     fc.assert(

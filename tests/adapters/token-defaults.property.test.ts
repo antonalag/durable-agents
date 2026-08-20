@@ -5,7 +5,6 @@ import { extractAiSdkTokens } from '../../src/adapters/ai-sdk.js';
 
 /**
  * Property 3: Missing token metadata defaults to zero
- * Validates: Requirements 1.5, 4.3
  */
 
 const zeros = { inputTokens: 0, outputTokens: 0, costUsd: 0 };

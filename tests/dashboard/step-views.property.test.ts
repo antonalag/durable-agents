@@ -24,10 +24,8 @@ const stepArb: fc.Arbitrary<Step> = fc.record({
   attempt: fc.integer({ min: 1, max: 10 }),
 });
 
-describe('Feature: sprint-5-dashboard-cli-polish, Property 4: Step timeline ordering', () => {
+describe('Step timeline ordering', () => {
   /**
-   * Validates: Requirements 3.1
-   *
    * For any array of Step objects with distinct sequence values,
    * the stepTimeline rendering function produces output where steps
    * appear in ascending sequence order.
@@ -64,10 +62,8 @@ describe('Feature: sprint-5-dashboard-cli-polish, Property 4: Step timeline orde
   });
 });
 
-describe('Feature: sprint-5-dashboard-cli-polish, Property 5: Step rendering completeness', () => {
+describe('Step rendering completeness', () => {
   /**
-   * Validates: Requirements 3.2
-   *
    * For any Step object, the rendered step HTML contains the step name,
    * status, duration, token cost, and attempt number.
    */
@@ -95,10 +91,8 @@ describe('Feature: sprint-5-dashboard-cli-polish, Property 5: Step rendering com
   });
 });
 
-describe('Feature: sprint-5-dashboard-cli-polish, Property 6: Recovery indicator correctness', () => {
+describe('Recovery indicator correctness', () => {
   /**
-   * Validates: Requirements 3.3
-   *
    * For any Step object, the rendered output includes a recovery visual
    * indicator if and only if the step's attempt number is greater than 1.
    */

@@ -40,6 +40,10 @@ export class DurableContextImpl {
     this.eventBus = opts.eventBus;
   }
 
+  get currentSequence(): number {
+    return this.sequence;
+  }
+
   async step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
     if (this.signal.aborted) {
       throw new DOMException('The operation was aborted.', 'AbortError');

@@ -1,11 +1,9 @@
-// Feature: sprint-2-runtime-core, Property 8: Monotonically increasing sequence numbers
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { SqliteJournalStore } from '../../src/stores/sqlite.js';
 import { DurableContextImpl } from '../../src/runtime/context.js';
 import { EventBus } from '../../src/runtime/event-bus.js';
 
-// Validates: Requirements 2.3
 describe('Property 8: Monotonically increasing sequence numbers', () => {
   function createContext(store: SqliteJournalStore, runId: string) {
     return new DurableContextImpl({

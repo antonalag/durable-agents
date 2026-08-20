@@ -9,7 +9,6 @@ const allCodes: DurableErrorCode[] = [
 
 /**
  * Property 9: Typed error construction and serialization
- * Validates: Requirements 7.1, 7.5, 7.7
  */
 describe('Property 9: Typed error construction and serialization', () => {
   it('all DurableError instances satisfy invariants', () => {

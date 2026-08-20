@@ -5,7 +5,6 @@ import { computeOperationKey } from '../../src/serialization/operation-key.js';
 describe('computeOperationKey', () => {
   const safeKeyArb = fc.string().filter((k) => k !== '__proto__' && k !== 'prototype' && k !== 'constructor');
 
-  // Property 2: Determinism — Validates: Requirements 4.3
   it('produces the same key for identical inputs', () => {
     fc.assert(
       fc.property(fc.anything({ key: safeKeyArb }), (value) => {
@@ -18,7 +17,6 @@ describe('computeOperationKey', () => {
     );
   });
 
-  // Property 3: Collision resistance — Validates: Requirements 4.4
   it('produces different keys for different inputs', () => {
     fc.assert(
       fc.property(fc.anything({ key: safeKeyArb }), fc.anything({ key: safeKeyArb }), (a, b) => {
@@ -37,7 +35,6 @@ describe('computeOperationKey', () => {
     );
   });
 
-  // Property 4: Order-independence — Validates: Requirements 4.5
   it('produces the same key regardless of object key order', () => {
     fc.assert(
       fc.property(fc.dictionary(safeKeyArb, fc.anything({ key: safeKeyArb })), (obj) => {

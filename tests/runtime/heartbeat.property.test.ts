@@ -1,10 +1,8 @@
-// Feature: sprint-2-runtime-core, Property 5: Heartbeat fires at configured interval
 import { describe, it, expect, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { Heartbeat } from '../../src/runtime/heartbeat.js';
 import type { JournalStore } from '../../src/stores/interface.js';
 
-// Validates: Requirements 4.1, 4.4
 describe('Property 5: Heartbeat fires at configured interval', () => {
   it('updateHeartbeat is called at least ⌊D/H⌋+1 times (immediate + interval fires)', () => {
     fc.assert(

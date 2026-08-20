@@ -8,9 +8,6 @@ function step(nodeName: string, sequence: number, outputHash?: string): StepReco
 }
 
 describe('Property 3: Same-tool loop detection', () => {
-  /**
-   * **Validates: Requirements 3.1**
-   */
   it('detects when consecutive same-name count > maxRepetitions', () => {
     fc.assert(
       fc.property(
@@ -43,9 +40,6 @@ describe('Property 3: Same-tool loop detection', () => {
 });
 
 describe('Property 4: No-progress loop detection', () => {
-  /**
-   * **Validates: Requirements 3.2**
-   */
   it('detects when M consecutive steps share identical outputHash', () => {
     fc.assert(
       fc.property(
@@ -81,9 +75,6 @@ describe('Property 4: No-progress loop detection', () => {
 });
 
 describe('Property 5: Oscillation loop detection', () => {
-  /**
-   * **Validates: Requirements 3.3**
-   */
   it('detects when A-B cycles exceed maxRepetitions', () => {
     fc.assert(
       fc.property(
@@ -119,9 +110,6 @@ describe('Property 5: Oscillation loop detection', () => {
 });
 
 describe('Property 6: Loop detector disabled without config', () => {
-  /**
-   * **Validates: Requirements 3.5**
-   */
   it('returns { detected: false } for any history when config is undefined', () => {
     fc.assert(
       fc.property(

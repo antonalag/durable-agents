@@ -58,7 +58,9 @@ function createCostTrackingStore(opts?: { existingCostSteps?: number }) {
       outcomes.push(withCost);
       return Promise.resolve(withCost);
     }),
-    getOutcomeByKey: vi.fn().mockResolvedValue(null),
+    getOutcomeByKey: vi.fn().mockImplementation((key: string) =>
+      Promise.resolve(outcomes.find((o) => o.operationKey === key) ?? null),
+    ),
     listSteps: vi.fn().mockImplementation((_runId: string) =>
       Promise.resolve(steps.filter((s) => s.runId === _runId)),
     ),

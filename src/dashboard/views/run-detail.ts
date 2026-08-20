@@ -1,11 +1,7 @@
 import type { ExecutionRun, Step } from '../../core/types.js';
 import { escapeHtml } from '../escape.js';
 import { layout } from './layout.js';
-
-function statusBadge(status: string): string {
-  const cls = `badge badge-${status}`;
-  return `<span class="${cls}">${status}</span>`;
-}
+import { statusBadge } from './status-badge.js';
 
 function formatDuration(step: Step): string {
   if (!step.completedAt) return '—';
