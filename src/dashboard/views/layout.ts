@@ -19,6 +19,7 @@ export function layout(title: string, body: string): string {
     a:hover { text-decoration: underline; }
     .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
     .badge-running { background: #dbeafe; color: #1e40af; }
+    .badge-recovering { background: #ede9fe; color: #5b21b6; }
     .badge-completed { background: #d1fae5; color: #065f46; }
     .badge-failed { background: #fee2e2; color: #991b1b; }
     .badge-terminated { background: #fef3c7; color: #92400e; }

@@ -12,6 +12,7 @@ const ALL_EVENT_TYPES: Array<keyof EventMap> = [
   'budget:warning',
   'budget:exceeded',
   'loop:detected',
+  'heartbeat:failed',
 ];
 
 export function formatSseEvent(event: DurableEvent): string {

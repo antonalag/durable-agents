@@ -54,8 +54,15 @@ export interface JournalStore {
   /** Sets lastHeartbeat to now. Called periodically to signal liveness. */
   updateHeartbeat(runId: string): Promise<void>;
 
-  /** Only considers runs with 'running' status. */
+  /** Considers runs with 'running' or 'recovering' status and an expired heartbeat. */
   findStaleRuns(timeoutMs: number): Promise<ExecutionRun[]>;
+
+  /**
+   * Atomically claim a stale run for recovery. Compare-and-swap that flips the
+   * run into the non-terminal 'recovering' status and returns it; returns null
+   * when the CAS does not match (another worker already holds the claim).
+   */
+  claimRunForRecovery(runId: string): Promise<ExecutionRun | null>;
 
   /** Cascading delete of runs older than maxAgeMs (by createdAt). */
   deleteRunsOlderThan(maxAgeMs: number): Promise<number>;

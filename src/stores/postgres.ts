@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS outcomes (
   result BYTEA NOT NULL,
   token_input INTEGER DEFAULT 0,
   token_output INTEGER DEFAULT 0,
+  cost_usd DOUBLE PRECISION DEFAULT 0,
   duration_ms INTEGER DEFAULT 0,
   recorded_at TEXT NOT NULL
 );
@@ -66,6 +67,9 @@ export class PostgresJournalStore implements JournalStore {
 
   async migrate(): Promise<void> {
     await this.pool.query(MIGRATION_SQL);
+    await this.pool.query(
+      'ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS cost_usd DOUBLE PRECISION DEFAULT 0',
+    );
   }
 
   async createRun(config: RunConfig): Promise<ExecutionRun> {
@@ -118,30 +122,37 @@ export class PostgresJournalStore implements JournalStore {
     const existing = await this.getRun(runId);
     if (!existing) throw new Error(`Run not found: ${runId}`);
 
-    const now = new Date();
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+
     if (updates.status !== undefined) {
-      await this.pool.query(
-        'UPDATE runs SET status = $1, updated_at = $2 WHERE run_id = $3',
-        [updates.status, now.toISOString(), runId],
-      );
+      sets.push(`status = $${i++}`);
+      params.push(updates.status);
     }
     if (updates.metadata !== undefined) {
-      await this.pool.query(
-        'UPDATE runs SET metadata = $1, updated_at = $2 WHERE run_id = $3',
-        [serialize(updates.metadata), now.toISOString(), runId],
-      );
+      sets.push(`metadata = $${i++}`);
+      params.push(serialize(updates.metadata));
     }
     if (updates.totals !== undefined) {
+      sets.push(`total_cost = $${i++}`);
+      params.push(updates.totals.cost);
+      sets.push(`total_tokens = $${i++}`);
+      params.push(updates.totals.tokens);
+      sets.push(`total_steps = $${i++}`);
+      params.push(updates.totals.steps);
+      sets.push(`recovery_count = $${i++}`);
+      params.push(updates.totals.recoveryCount);
+    }
+
+    sets.push(`updated_at = $${i++}`);
+    params.push(new Date().toISOString());
+
+    if (sets.length > 1) {
+      params.push(runId);
       await this.pool.query(
-        'UPDATE runs SET total_cost = $1, total_tokens = $2, total_steps = $3, recovery_count = $4, updated_at = $5 WHERE run_id = $6',
-        [
-          updates.totals.cost,
-          updates.totals.tokens,
-          updates.totals.steps,
-          updates.totals.recoveryCount,
-          now.toISOString(),
-          runId,
-        ],
+        `UPDATE runs SET ${sets.join(', ')} WHERE run_id = $${i}`,
+        params,
       );
     }
 
@@ -256,8 +267,8 @@ export class PostgresJournalStore implements JournalStore {
 
   async recordOutcome(outcome: OutcomeRecord): Promise<OutcomeRecord> {
     await this.pool.query(
-      `INSERT INTO outcomes (outcome_id, step_id, operation_type, operation_key, result, token_input, token_output, duration_ms, recorded_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      `INSERT INTO outcomes (outcome_id, step_id, operation_type, operation_key, result, token_input, token_output, cost_usd, duration_ms, recorded_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         outcome.outcomeId,
         outcome.stepId,
@@ -266,6 +277,7 @@ export class PostgresJournalStore implements JournalStore {
         Buffer.from(serialize(outcome.result)),
         outcome.tokens.inputTokens,
         outcome.tokens.outputTokens,
+        outcome.tokens.costUsd,
         outcome.durationMs,
         outcome.recordedAt.toISOString(),
       ],
@@ -309,10 +321,18 @@ export class PostgresJournalStore implements JournalStore {
   async findStaleRuns(timeoutMs: number): Promise<ExecutionRun[]> {
     const threshold = new Date(Date.now() - timeoutMs).toISOString();
     const { rows } = await this.pool.query(
-      "SELECT * FROM runs WHERE status = 'running' AND last_heartbeat < $1",
+      "SELECT * FROM runs WHERE status IN ('running', 'recovering') AND last_heartbeat < $1",
       [threshold],
     );
     return rows.map((row: Record<string, unknown>) => this.rowToRun(row));
+  }
+
+  async claimRunForRecovery(runId: string): Promise<ExecutionRun | null> {
+    const { rows } = await this.pool.query(
+      "UPDATE runs SET status = 'recovering', updated_at = $2 WHERE run_id = $1 AND status IN ('running', 'recovering') RETURNING *",
+      [runId, new Date().toISOString()],
+    );
+    return rows.length === 0 ? null : this.rowToRun(rows[0]);
   }
 
   async deleteRunsOlderThan(maxAgeMs: number): Promise<number> {
@@ -382,7 +402,7 @@ export class PostgresJournalStore implements JournalStore {
       tokens: {
         inputTokens: row.token_input as number,
         outputTokens: row.token_output as number,
-        costUsd: 0,
+        costUsd: (row.cost_usd as number) ?? 0,
       },
       durationMs: row.duration_ms as number,
       recordedAt: new Date(row.recorded_at as string),

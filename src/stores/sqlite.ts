@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS outcomes (
   result BLOB NOT NULL,
   token_input INTEGER DEFAULT 0,
   token_output INTEGER DEFAULT 0,
+  cost_usd REAL DEFAULT 0,
   duration_ms INTEGER DEFAULT 0,
   recorded_at TEXT NOT NULL
 );
@@ -64,6 +65,13 @@ export class SqliteJournalStore implements JournalStore {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA_DDL);
+
+    const outcomeCols = this.db
+      .prepare('PRAGMA table_info(outcomes)')
+      .all() as Array<{ name: string }>;
+    if (!outcomeCols.some((c) => c.name === 'cost_usd')) {
+      this.db.exec('ALTER TABLE outcomes ADD COLUMN cost_usd REAL DEFAULT 0');
+    }
   }
 
   async createRun(config: RunConfig): Promise<ExecutionRun> {
@@ -116,32 +124,36 @@ export class SqliteJournalStore implements JournalStore {
     const existing = await this.getRun(runId);
     if (!existing) throw new Error(`Run not found: ${runId}`);
 
-    const now = new Date();
+    const sets: string[] = [];
+    const params: unknown[] = [];
+
     if (updates.status !== undefined) {
-      this.db
-        .prepare('UPDATE runs SET status = ?, updated_at = ? WHERE run_id = ?')
-        .run(updates.status, now.toISOString(), runId);
+      sets.push('status = ?');
+      params.push(updates.status);
     }
     if (updates.metadata !== undefined) {
-      this.db
-        .prepare(
-          'UPDATE runs SET metadata = ?, updated_at = ? WHERE run_id = ?',
-        )
-        .run(serialize(updates.metadata), now.toISOString(), runId);
+      sets.push('metadata = ?');
+      params.push(serialize(updates.metadata));
     }
     if (updates.totals !== undefined) {
+      sets.push('total_cost = ?');
+      params.push(updates.totals.cost);
+      sets.push('total_tokens = ?');
+      params.push(updates.totals.tokens);
+      sets.push('total_steps = ?');
+      params.push(updates.totals.steps);
+      sets.push('recovery_count = ?');
+      params.push(updates.totals.recoveryCount);
+    }
+
+    sets.push('updated_at = ?');
+    params.push(new Date().toISOString());
+
+    if (sets.length > 1) {
+      params.push(runId);
       this.db
-        .prepare(
-          'UPDATE runs SET total_cost = ?, total_tokens = ?, total_steps = ?, recovery_count = ?, updated_at = ? WHERE run_id = ?',
-        )
-        .run(
-          updates.totals.cost,
-          updates.totals.tokens,
-          updates.totals.steps,
-          updates.totals.recoveryCount,
-          now.toISOString(),
-          runId,
-        );
+        .prepare(`UPDATE runs SET ${sets.join(', ')} WHERE run_id = ?`)
+        .run(...params);
     }
 
     return (await this.getRun(runId))!;
@@ -254,8 +266,8 @@ export class SqliteJournalStore implements JournalStore {
   async recordOutcome(outcome: OutcomeRecord): Promise<OutcomeRecord> {
     this.db
       .prepare(
-        `INSERT INTO outcomes (outcome_id, step_id, operation_type, operation_key, result, token_input, token_output, duration_ms, recorded_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO outcomes (outcome_id, step_id, operation_type, operation_key, result, token_input, token_output, cost_usd, duration_ms, recorded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         outcome.outcomeId,
@@ -265,6 +277,7 @@ export class SqliteJournalStore implements JournalStore {
         Buffer.from(serialize(outcome.result)),
         outcome.tokens.inputTokens,
         outcome.tokens.outputTokens,
+        outcome.tokens.costUsd,
         outcome.durationMs,
         outcome.recordedAt.toISOString(),
       );
@@ -305,10 +318,20 @@ export class SqliteJournalStore implements JournalStore {
     const threshold = new Date(Date.now() - timeoutMs).toISOString();
     const rows = this.db
       .prepare(
-        "SELECT * FROM runs WHERE status = 'running' AND last_heartbeat < ?",
+        "SELECT * FROM runs WHERE status IN ('running', 'recovering') AND last_heartbeat < ?",
       )
       .all(threshold) as Record<string, unknown>[];
     return Promise.resolve(rows.map((row) => this.rowToRun(row)));
+  }
+
+  async claimRunForRecovery(runId: string): Promise<ExecutionRun | null> {
+    const info = this.db
+      .prepare(
+        "UPDATE runs SET status = 'recovering', updated_at = ? WHERE run_id = ? AND status IN ('running', 'recovering')",
+      )
+      .run(new Date().toISOString(), runId);
+    if (info.changes === 0) return Promise.resolve(null);
+    return this.getRun(runId);
   }
 
   async deleteRunsOlderThan(maxAgeMs: number): Promise<number> {
@@ -377,7 +400,7 @@ export class SqliteJournalStore implements JournalStore {
       tokens: {
         inputTokens: row.token_input as number,
         outputTokens: row.token_output as number,
-        costUsd: 0,
+        costUsd: (row.cost_usd as number) ?? 0,
       },
       durationMs: row.duration_ms as number,
       recordedAt: new Date(row.recorded_at as string),

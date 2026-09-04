@@ -1,6 +1,7 @@
 export type RunStatus =
   | 'pending'
   | 'running'
+  | 'recovering'
   | 'completed'
   | 'failed'
   | 'stale'
@@ -169,6 +170,11 @@ export interface LoopDetectedEvent extends BaseEvent {
   repetitions: number;
 }
 
+export interface HeartbeatFailedEvent extends BaseEvent {
+  type: 'heartbeat:failed';
+  error: Error;
+}
+
 export type DurableEvent =
   | RunStartedEvent
   | RunCompletedEvent
@@ -178,7 +184,8 @@ export type DurableEvent =
   | StepCompletedEvent
   | BudgetWarningEvent
   | BudgetExceededEvent
-  | LoopDetectedEvent;
+  | LoopDetectedEvent
+  | HeartbeatFailedEvent;
 
 export type EventMap = {
   'run:started': RunStartedEvent;
@@ -190,4 +197,5 @@ export type EventMap = {
   'budget:warning': BudgetWarningEvent;
   'budget:exceeded': BudgetExceededEvent;
   'loop:detected': LoopDetectedEvent;
+  'heartbeat:failed': HeartbeatFailedEvent;
 };

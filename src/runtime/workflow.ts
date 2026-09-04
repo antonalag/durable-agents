@@ -144,7 +144,7 @@ export class DurableWorkflow<TInput, TOutput> {
     this.activeRuns.set(activeRun.runId, abortController);
     this.lifecycleStates.set(activeRun.runId, lifecycle);
 
-    const heartbeat = new Heartbeat(this.store, activeRun.runId, this.heartbeatIntervalMs);
+    const heartbeat = new Heartbeat(this.store, activeRun.runId, this.heartbeatIntervalMs, this.eventBus);
     heartbeat.start();
 
     this.eventBus.emit('run:started', {
@@ -170,40 +170,42 @@ export class DurableWorkflow<TInput, TOutput> {
     const requestGracefulStop = DurableWorkflow.createGracefulStopRequester(lifecycle);
     let runningCost = 0;
 
-    ctx.step = async <T>(name: string, fn: () => T | Promise<T>): Promise<T> => {
-      // Pre-step: budget check
-      if (this.budgetConfig) {
-        const elapsed = Date.now() - startTime;
-        const budgetResult = checkBudget({
-          totals: activeRun.totals,
-          elapsedMs: elapsed,
-          config: this.budgetConfig,
-        });
+    const runBudgetCheckAndEmit = (): void => {
+      if (!this.budgetConfig) return;
 
-        if (budgetResult.status === 'warning' && budgetResult.triggeredBy && !warningsEmitted.has(budgetResult.triggeredBy)) {
-          warningsEmitted.add(budgetResult.triggeredBy);
-          this.eventBus.emit('budget:warning', {
-            type: 'budget:warning',
-            timestamp: new Date(),
-            runId: activeRun.runId,
-            currentCost: activeRun.totals.cost,
-            budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
-            percentUsed: budgetResult.percentUsed,
-          } satisfies BudgetWarningEvent);
-        }
+      const budgetResult = checkBudget({
+        totals: activeRun.totals,
+        elapsedMs: Date.now() - startTime,
+        config: this.budgetConfig,
+      });
 
-        if (budgetResult.status === 'exceeded') {
-          this.eventBus.emit('budget:exceeded', {
-            type: 'budget:exceeded',
-            timestamp: new Date(),
-            runId: activeRun.runId,
-            currentCost: activeRun.totals.cost,
-            budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
-            action: 'graceful_stop',
-          } satisfies BudgetExceededEvent);
-          requestGracefulStop('budget_exceeded');
-        }
+      if (budgetResult.status === 'warning' && budgetResult.triggeredBy && !warningsEmitted.has(budgetResult.triggeredBy)) {
+        warningsEmitted.add(budgetResult.triggeredBy);
+        this.eventBus.emit('budget:warning', {
+          type: 'budget:warning',
+          timestamp: new Date(),
+          runId: activeRun.runId,
+          currentCost: activeRun.totals.cost,
+          budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
+          percentUsed: budgetResult.percentUsed,
+        } satisfies BudgetWarningEvent);
       }
+
+      if (budgetResult.status === 'exceeded') {
+        this.eventBus.emit('budget:exceeded', {
+          type: 'budget:exceeded',
+          timestamp: new Date(),
+          runId: activeRun.runId,
+          currentCost: activeRun.totals.cost,
+          budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
+          action: 'graceful_stop',
+        } satisfies BudgetExceededEvent);
+        requestGracefulStop('budget_exceeded');
+      }
+    };
+
+    ctx.step = async <T>(name: string, fn: () => T | Promise<T>): Promise<T> => {
+      runBudgetCheckAndEmit();
 
       // Phase gate: lifecycle stopping/terminated
       if (lifecycle.phase === 'stopping') {
@@ -264,6 +266,65 @@ export class DurableWorkflow<TInput, TOutput> {
       }
 
       return result;
+    };
+
+    const originalParallel = ctx.parallel.bind(ctx);
+
+    ctx.parallel = async <T>(
+      steps: Array<{ name: string; fn: () => T | Promise<T> }>,
+    ): Promise<T[]> => {
+      runBudgetCheckAndEmit();
+
+      if (lifecycle.phase === 'terminated' || lifecycle.phase === 'stopping') {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+
+      const seqBeforeGroup = ctx.currentSequence;
+      const results = await originalParallel(steps);
+
+      activeRun.totals.steps += steps.length;
+
+      for (let i = 0; i < steps.length; i++) {
+        const key = computeOperationKey(activeRun.runId, steps[i].name, seqBeforeGroup + i);
+        if (!ctx.wasReplayed(key)) {
+          const outcome = await this.store.getOutcomeByKey(key);
+          if (outcome) {
+            runningCost += outcome.tokens.costUsd;
+          }
+        }
+      }
+      activeRun.totals.cost = runningCost;
+
+      runBudgetCheckAndEmit();
+
+      if (this.loopConfig) {
+        const stepsBase = activeRun.totals.steps - steps.length;
+        for (let i = 0; i < steps.length; i++) {
+          stepHistory.push({
+            nodeName: steps[i].name,
+            sequence: stepsBase + i + 1,
+            outputHash: hashResult(results[i]),
+          });
+        }
+
+        const loopResult = detectLoop(stepHistory, this.loopConfig);
+        if (loopResult.detected) {
+          this.eventBus.emit('loop:detected', {
+            type: 'loop:detected',
+            timestamp: new Date(),
+            runId: activeRun.runId,
+            loopType: loopResult.loopType!,
+            detectedAtStep: activeRun.totals.steps,
+            repetitions: loopResult.repetitions!,
+          } satisfies LoopDetectedEvent);
+
+          if (loopResult.action === 'graceful_stop') {
+            requestGracefulStop('loop_detected');
+          }
+        }
+      }
+
+      return results;
     };
 
     try {
@@ -376,6 +437,10 @@ export class DurableWorkflow<TInput, TOutput> {
 
     for (const run of staleRuns) {
       if (run.config.name !== this.name) continue;
+
+      const claimed = await this.store.claimRunForRecovery(run.runId);
+      if (!claimed) continue;
+
       try {
         const input = run.metadata?.input as TInput;
         await recoveryEngine.recover(run.runId, this.fn, input);

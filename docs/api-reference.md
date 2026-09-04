@@ -473,8 +473,21 @@ interface BudgetConfig {
   maxSteps?: number;
   maxDurationMs?: number;
   warningThreshold?: number;  // Default: 0.8 (fires warning at 80%)
+  costFunction?: (tokens: { inputTokens: number; outputTokens: number }) => number;
 }
 ```
+
+`costFunction` converts extracted token counts into a USD cost. It is applied inside the adapters (LangGraph, AI SDK) where token counts are available, before the outcome is persisted. It must be a pure, synchronous function — no network calls or async work. If it throws, or returns `NaN`, `Infinity`, or a negative value, the adapter throws and the outcome is not persisted.
+
+```ts
+const budget: BudgetConfig = {
+  maxCostUsd: 1.0,
+  costFunction: ({ inputTokens, outputTokens }) =>
+    inputTokens * 0.000003 + outputTokens * 0.000015,
+};
+```
+
+Cost is only produced where an adapter extracts tokens; core `ctx.step()` outcomes always record `costUsd: 0`. `maxCostUsd` enforces a budget over the observed `OutcomeRecord.tokens.costUsd` values — it does not guarantee total external LLM spend.
 
 > **Limitation — `maxCostUsd` is adapter-dependent:** The durable run cost is derived from the sum of `OutcomeRecord.tokens.costUsd` for all completed steps. The core `ctx.step()` path records `costUsd: 0` for all outcomes. Without a framework adapter (LangGraph, AI SDK) that provides real token costs, `maxCostUsd` cannot enforce spending limits. Budget enforcement is post-step: a step may push cost above the limit, and enforcement fires before the next step.
 
@@ -536,6 +549,8 @@ interface Step {
 
 type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 ```
+
+> **`sequence: -1` (out-of-band marker):** Steps created by `ctx.idempotent()` and by the AI SDK adapter's `withDurability()` use `sequence: -1`. This is an intentional marker for steps that are not allocated a positional sequence — they are keyed by an explicit `operationKey` rather than by position in the run. It is not an error or a sentinel for "unknown"; positional steps (via `ctx.step()` / `ctx.parallel()`) always receive a non-negative sequence.
 
 ---
 

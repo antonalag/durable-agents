@@ -28,6 +28,7 @@ export class DurableContextImpl {
   private sequence = 0;
   private mode: ContextMode;
   private replayCursor: Map<string, OutcomeRecord>;
+  private replayedKeys = new Set<string>();
   private store: JournalStore;
   private eventBus: EventBus;
 
@@ -44,6 +45,10 @@ export class DurableContextImpl {
     return this.sequence;
   }
 
+  wasReplayed(operationKey: string): boolean {
+    return this.replayedKeys.has(operationKey);
+  }
+
   async step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
     if (this.signal.aborted) {
       throw new DOMException('The operation was aborted.', 'AbortError');
@@ -53,6 +58,7 @@ export class DurableContextImpl {
 
     const cached = this.replayCursor.get(operationKey);
     if (cached) {
+      this.replayedKeys.add(operationKey);
       this.sequence++;
       return cached.result as T;
     }
@@ -139,6 +145,7 @@ export class DurableContextImpl {
 
       const cached = this.replayCursor.get(operationKey);
       if (cached) {
+        this.replayedKeys.add(operationKey);
         return Promise.resolve(cached.result as T);
       }
 

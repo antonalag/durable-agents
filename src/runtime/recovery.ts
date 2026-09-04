@@ -53,7 +53,7 @@ export class RecoveryEngine {
     }
 
     const heartbeatInterval = run.config.heartbeatIntervalMs ?? 10_000;
-    const heartbeat = new Heartbeat(this.store, runId, heartbeatInterval);
+    const heartbeat = new Heartbeat(this.store, runId, heartbeatInterval, this.eventBus);
 
     const ctx = new DurableContextImpl({
       run,
