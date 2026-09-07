@@ -4,6 +4,7 @@ export type DurableErrorCode =
   | 'RUN_TERMINATED'
   | 'STORE_ERROR'
   | 'INVALID_CONFIG'
+  | 'FENCED'
   | 'DASHBOARD_PORT_IN_USE';
 
 export class DurableError extends Error {

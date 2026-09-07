@@ -28,6 +28,7 @@ function createCostTrackingStore(opts?: { existingCostSteps?: number }) {
     createdAt: now,
     updatedAt: now,
     lastHeartbeat: now,
+    recoveryGeneration: 0,
   };
 
   const steps: Step[] = [];
@@ -159,6 +160,7 @@ describe('maxCostUsd cost accounting', () => {
       createdAt: now,
       updatedAt: now,
       lastHeartbeat: now,
+      recoveryGeneration: 0,
     };
 
     const store = {
@@ -237,6 +239,7 @@ describe('maxCostUsd cost accounting', () => {
       createdAt: now,
       updatedAt: now,
       lastHeartbeat: now,
+      recoveryGeneration: 0,
     };
 
     const store = {

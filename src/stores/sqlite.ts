@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS runs (
   recovery_count INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  last_heartbeat TEXT NOT NULL
+  last_heartbeat TEXT NOT NULL,
+  recovery_generation INTEGER NOT NULL DEFAULT 0,
+  owner_token TEXT
 );
 
 CREATE TABLE IF NOT EXISTS steps (
@@ -72,6 +74,18 @@ export class SqliteJournalStore implements JournalStore {
     if (!outcomeCols.some((c) => c.name === 'cost_usd')) {
       this.db.exec('ALTER TABLE outcomes ADD COLUMN cost_usd REAL DEFAULT 0');
     }
+
+    const runCols = this.db
+      .prepare('PRAGMA table_info(runs)')
+      .all() as Array<{ name: string }>;
+    if (!runCols.some((c) => c.name === 'recovery_generation')) {
+      this.db.exec(
+        'ALTER TABLE runs ADD COLUMN recovery_generation INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!runCols.some((c) => c.name === 'owner_token')) {
+      this.db.exec('ALTER TABLE runs ADD COLUMN owner_token TEXT');
+    }
   }
 
   async createRun(config: RunConfig): Promise<ExecutionRun> {
@@ -85,6 +99,8 @@ export class SqliteJournalStore implements JournalStore {
       createdAt: now,
       updatedAt: now,
       lastHeartbeat: now,
+      recoveryGeneration: 0,
+      ownerToken: undefined,
     };
 
     this.db
@@ -361,6 +377,8 @@ export class SqliteJournalStore implements JournalStore {
       createdAt: new Date(row.created_at as string),
       updatedAt: new Date(row.updated_at as string),
       lastHeartbeat: new Date(row.last_heartbeat as string),
+      recoveryGeneration: (row.recovery_generation as number) ?? 0,
+      ownerToken: (row.owner_token as string) ?? undefined,
     };
   }
 

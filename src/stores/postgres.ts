@@ -22,7 +22,9 @@ CREATE TABLE IF NOT EXISTS runs (
   recovery_count INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  last_heartbeat TEXT NOT NULL
+  last_heartbeat TEXT NOT NULL,
+  recovery_generation BIGINT NOT NULL DEFAULT 0,
+  owner_token TEXT
 );
 
 CREATE TABLE IF NOT EXISTS steps (
@@ -70,6 +72,12 @@ export class PostgresJournalStore implements JournalStore {
     await this.pool.query(
       'ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS cost_usd DOUBLE PRECISION DEFAULT 0',
     );
+    await this.pool.query(
+      'ALTER TABLE runs ADD COLUMN IF NOT EXISTS recovery_generation BIGINT NOT NULL DEFAULT 0',
+    );
+    await this.pool.query(
+      'ALTER TABLE runs ADD COLUMN IF NOT EXISTS owner_token TEXT',
+    );
   }
 
   async createRun(config: RunConfig): Promise<ExecutionRun> {
@@ -83,6 +91,8 @@ export class PostgresJournalStore implements JournalStore {
       createdAt: now,
       updatedAt: now,
       lastHeartbeat: now,
+      recoveryGeneration: 0,
+      ownerToken: undefined,
     };
 
     await this.pool.query(
@@ -363,6 +373,9 @@ export class PostgresJournalStore implements JournalStore {
       createdAt: new Date(row.created_at as string),
       updatedAt: new Date(row.updated_at as string),
       lastHeartbeat: new Date(row.last_heartbeat as string),
+      // pg returns BIGINT as a string; coerce to number.
+      recoveryGeneration: row.recovery_generation != null ? Number(row.recovery_generation) : 0,
+      ownerToken: (row.owner_token as string) ?? undefined,
     };
   }
 

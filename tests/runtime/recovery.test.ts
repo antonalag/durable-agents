@@ -27,6 +27,7 @@ function createRecoveryMockStore(opts: {
     createdAt: now,
     updatedAt: now,
     lastHeartbeat: now,
+    recoveryGeneration: 0,
   };
 
   const completedSteps: Step[] = Array.from({ length: opts.completedStepCount }, (_, i) => ({
@@ -99,6 +100,7 @@ describe('RecoveryEngine', () => {
           createdAt: now,
           updatedAt: now,
           lastHeartbeat: new Date(now.getTime() - 60_000),
+          recoveryGeneration: 0,
         },
         {
           runId: 'stale-2',
@@ -109,6 +111,7 @@ describe('RecoveryEngine', () => {
           createdAt: now,
           updatedAt: now,
           lastHeartbeat: new Date(now.getTime() - 45_000),
+          recoveryGeneration: 0,
         },
       ];
 

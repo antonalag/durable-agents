@@ -16,7 +16,7 @@ function createMockStore(): JournalStore {
   const fakeRun: ExecutionRun = {
     runId: 'hook-run', status: 'running', config: { name: 'test' }, metadata: {},
     totals: { cost: 0, tokens: 0, steps: 0, recoveryCount: 0 },
-    createdAt: now, updatedAt: now, lastHeartbeat: now,
+    createdAt: now, updatedAt: now, lastHeartbeat: now, recoveryGeneration: 0,
   };
   return {
     createRun: vi.fn().mockResolvedValue(fakeRun),

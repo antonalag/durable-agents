@@ -29,6 +29,7 @@ function createMockStore(opts?: { runId?: string }) {
     createdAt: now,
     updatedAt: now,
     lastHeartbeat: now,
+    recoveryGeneration: 0,
   };
 
   const outcomes: OutcomeRecord[] = [];

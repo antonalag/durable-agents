@@ -25,6 +25,7 @@ function createMockStore() {
     createdAt: now,
     updatedAt: now,
     lastHeartbeat: now,
+    recoveryGeneration: 0,
   };
 
   const steps: Step[] = [];

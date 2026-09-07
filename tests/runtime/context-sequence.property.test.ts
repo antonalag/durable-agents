@@ -16,6 +16,7 @@ describe('Property 8: Monotonically increasing sequence numbers', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         lastHeartbeat: new Date(),
+        recoveryGeneration: 0,
       },
       store,
       mode: 'fresh',
