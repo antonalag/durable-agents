@@ -8,6 +8,7 @@ export class Heartbeat {
     private store: JournalStore,
     private runId: string,
     private intervalMs: number,
+    private generation: number,
     private eventBus?: EventBus,
   ) {}
 
@@ -32,7 +33,7 @@ export class Heartbeat {
   }
 
   private beat(): void {
-    this.store.updateHeartbeat(this.runId).catch((err: unknown) => {
+    this.store.updateHeartbeat(this.runId, this.generation).catch((err: unknown) => {
       this.eventBus?.emit('heartbeat:failed', {
         type: 'heartbeat:failed',
         timestamp: new Date(),

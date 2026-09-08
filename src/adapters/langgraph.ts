@@ -49,6 +49,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
   }
 
   let run: ExecutionRun;
+  let generation = 0;
   let heartbeat: Heartbeat;
   let _ctx: DurableContextImpl;
   let stepSequence = 0;
@@ -94,16 +95,24 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
       }
 
       for (const staleRun of matching) {
-        await store.updateRun(staleRun.runId, { status: 'failed' });
+        // This create-new-run path stays outside the recovery fence (Req 9.21);
+        // marking a stale run failed uses that run's own held generation.
+        await store.updateRun(
+          staleRun.runId,
+          { status: 'failed' },
+          staleRun.recoveryGeneration,
+        );
       }
     }
 
     run = await store.createRun(config);
-    await store.updateRun(run.runId, { status: 'running' });
+    // Freshly created run owns generation 0; this adapter path never advances it.
+    generation = run.recoveryGeneration;
+    await store.updateRun(run.runId, { status: 'running' }, generation);
     run = { ...run, status: 'running' };
 
     const heartbeatInterval = config.heartbeatIntervalMs ?? 10_000;
-    heartbeat = new Heartbeat(store, run.runId, heartbeatInterval, eventBus);
+    heartbeat = new Heartbeat(store, run.runId, heartbeatInterval, generation, eventBus);
     heartbeat.start();
 
     _ctx = new DurableContextImpl({
@@ -113,6 +122,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
       replayCursor,
       eventBus,
       signal: new AbortController().signal,
+      generation,
     });
     void _ctx;
 
@@ -165,7 +175,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
       tokens,
       durationMs: 0,
       recordedAt: new Date(),
-    });
+    }, generation);
 
     stepSequence++;
   };
@@ -177,7 +187,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
     await store.updateRun(run.runId, {
       status: 'completed',
       totals: finalTotals,
-    });
+    }, generation);
 
     eventBus.emit('run:completed', {
       type: 'run:completed',

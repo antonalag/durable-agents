@@ -56,6 +56,8 @@ export async function withDurability<T>(
   const now = new Date();
   const zeroCost: TokenCost = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 
+  const generation = ctx.currentGeneration;
+
   await store.createStep({
     stepId,
     runId: ctx.run.runId,
@@ -65,7 +67,7 @@ export async function withDurability<T>(
     startedAt: now,
     cost: zeroCost,
     attempt: 1,
-  });
+  }, generation);
 
   const startMs = Date.now();
 
@@ -106,20 +108,20 @@ export async function withDurability<T>(
       tokens,
       durationMs,
       recordedAt: new Date(),
-    });
+    }, generation);
 
     await store.updateStep(stepId, {
       status: 'completed',
       completedAt: new Date(),
       cost: tokens,
-    });
+    }, generation);
 
     return result;
   } catch (error) {
     await store.updateStep(stepId, {
       status: 'failed',
       completedAt: new Date(),
-    });
+    }, generation);
     throw error;
   }
 }

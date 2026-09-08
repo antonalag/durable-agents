@@ -4,9 +4,11 @@ import type { JournalStore, ListRunsFilter } from './interface.js';
 import type {
   ExecutionRun,
   OutcomeRecord,
+  RecoveryClaim,
   RunConfig,
   Step,
 } from '../core/types.js';
+import { DurableError } from '../errors.js';
 import { serialize, deserialize } from '../serialization/serializer.js';
 
 const SCHEMA_DDL = `
@@ -136,6 +138,7 @@ export class SqliteJournalStore implements JournalStore {
   async updateRun(
     runId: string,
     updates: Partial<Pick<ExecutionRun, 'status' | 'metadata' | 'totals'>>,
+    expectedGeneration: number,
   ): Promise<ExecutionRun> {
     const existing = await this.getRun(runId);
     if (!existing) throw new Error(`Run not found: ${runId}`);
@@ -165,11 +168,19 @@ export class SqliteJournalStore implements JournalStore {
     sets.push('updated_at = ?');
     params.push(new Date().toISOString());
 
-    if (sets.length > 1) {
-      params.push(runId);
-      this.db
-        .prepare(`UPDATE runs SET ${sets.join(', ')} WHERE run_id = ?`)
-        .run(...params);
+    params.push(runId);
+    params.push(expectedGeneration);
+    const info = this.db
+      .prepare(
+        `UPDATE runs SET ${sets.join(', ')} WHERE run_id = ? AND recovery_generation = ?`,
+      )
+      .run(...params);
+
+    if (info.changes === 0) {
+      throw new DurableError(
+        'FENCED',
+        `Run ${runId} write rejected: generation ${expectedGeneration} no longer holds the claim`,
+      );
     }
 
     return (await this.getRun(runId))!;
@@ -205,11 +216,15 @@ export class SqliteJournalStore implements JournalStore {
     return Promise.resolve();
   }
 
-  async createStep(step: Omit<Step, 'completedAt'>): Promise<Step> {
-    this.db
+  async createStep(
+    step: Omit<Step, 'completedAt'>,
+    expectedGeneration: number,
+  ): Promise<Step> {
+    const info = this.db
       .prepare(
         `INSERT INTO steps (step_id, run_id, node_name, sequence, status, started_at, input_state_hash, cost_input_tokens, cost_output_tokens, cost_usd, attempt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE (SELECT recovery_generation FROM runs WHERE run_id = ?) = ?`,
       )
       .run(
         step.stepId,
@@ -223,7 +238,17 @@ export class SqliteJournalStore implements JournalStore {
         step.cost.outputTokens,
         step.cost.costUsd,
         step.attempt,
+        step.runId,
+        expectedGeneration,
       );
+
+    if (info.changes === 0) {
+      throw new DurableError(
+        'FENCED',
+        `Step create rejected for run ${step.runId}: generation ${expectedGeneration} no longer holds the claim`,
+      );
+    }
+
     return Promise.resolve({ ...step, completedAt: undefined });
   }
 
@@ -238,33 +263,47 @@ export class SqliteJournalStore implements JournalStore {
   async updateStep(
     stepId: string,
     updates: Partial<Pick<Step, 'status' | 'completedAt' | 'cost' | 'attempt'>>,
+    expectedGeneration: number,
   ): Promise<Step> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+
     if (updates.status !== undefined) {
-      this.db
-        .prepare('UPDATE steps SET status = ? WHERE step_id = ?')
-        .run(updates.status, stepId);
+      sets.push('status = ?');
+      params.push(updates.status);
     }
     if (updates.completedAt !== undefined) {
-      this.db
-        .prepare('UPDATE steps SET completed_at = ? WHERE step_id = ?')
-        .run(updates.completedAt.toISOString(), stepId);
+      sets.push('completed_at = ?');
+      params.push(updates.completedAt.toISOString());
     }
     if (updates.cost !== undefined) {
-      this.db
-        .prepare(
-          'UPDATE steps SET cost_input_tokens = ?, cost_output_tokens = ?, cost_usd = ? WHERE step_id = ?',
-        )
-        .run(
-          updates.cost.inputTokens,
-          updates.cost.outputTokens,
-          updates.cost.costUsd,
-          stepId,
-        );
+      sets.push('cost_input_tokens = ?', 'cost_output_tokens = ?', 'cost_usd = ?');
+      params.push(
+        updates.cost.inputTokens,
+        updates.cost.outputTokens,
+        updates.cost.costUsd,
+      );
     }
     if (updates.attempt !== undefined) {
-      this.db
-        .prepare('UPDATE steps SET attempt = ? WHERE step_id = ?')
-        .run(updates.attempt, stepId);
+      sets.push('attempt = ?');
+      params.push(updates.attempt);
+    }
+
+    if (sets.length > 0) {
+      params.push(stepId, expectedGeneration);
+      const info = this.db
+        .prepare(
+          `UPDATE steps SET ${sets.join(', ')} WHERE step_id = ?
+           AND (SELECT recovery_generation FROM runs WHERE run_id = steps.run_id) = ?`,
+        )
+        .run(...params);
+
+      if (info.changes === 0) {
+        throw new DurableError(
+          'FENCED',
+          `Step ${stepId} update rejected: generation ${expectedGeneration} no longer holds the claim`,
+        );
+      }
     }
 
     const result = await this.getStep(stepId);
@@ -279,11 +318,18 @@ export class SqliteJournalStore implements JournalStore {
     return Promise.resolve(rows.map((row) => this.rowToStep(row)));
   }
 
-  async recordOutcome(outcome: OutcomeRecord): Promise<OutcomeRecord> {
-    this.db
+  async recordOutcome(
+    outcome: OutcomeRecord,
+    expectedGeneration: number,
+  ): Promise<OutcomeRecord> {
+    const info = this.db
       .prepare(
         `INSERT INTO outcomes (outcome_id, step_id, operation_type, operation_key, result, token_input, token_output, cost_usd, duration_ms, recorded_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE (
+         SELECT recovery_generation FROM runs
+         WHERE run_id = (SELECT run_id FROM steps WHERE step_id = ?)
+       ) = ?`,
       )
       .run(
         outcome.outcomeId,
@@ -296,7 +342,17 @@ export class SqliteJournalStore implements JournalStore {
         outcome.tokens.costUsd,
         outcome.durationMs,
         outcome.recordedAt.toISOString(),
+        outcome.stepId,
+        expectedGeneration,
       );
+
+    if (info.changes === 0) {
+      throw new DurableError(
+        'FENCED',
+        `Outcome record rejected for step ${outcome.stepId}: generation ${expectedGeneration} no longer holds the claim`,
+      );
+    }
+
     return Promise.resolve(outcome);
   }
 
@@ -323,11 +379,16 @@ export class SqliteJournalStore implements JournalStore {
     return Promise.resolve(rows.map((row) => this.rowToOutcome(row)));
   }
 
-  async updateHeartbeat(runId: string): Promise<void> {
-    this.db
-      .prepare('UPDATE runs SET last_heartbeat = ? WHERE run_id = ?')
-      .run(new Date().toISOString(), runId);
-    return Promise.resolve();
+  async updateHeartbeat(
+    runId: string,
+    expectedGeneration: number,
+  ): Promise<boolean> {
+    const info = this.db
+      .prepare(
+        'UPDATE runs SET last_heartbeat = ? WHERE run_id = ? AND recovery_generation = ?',
+      )
+      .run(new Date().toISOString(), runId, expectedGeneration);
+    return Promise.resolve(info.changes > 0);
   }
 
   async findStaleRuns(timeoutMs: number): Promise<ExecutionRun[]> {
@@ -340,14 +401,28 @@ export class SqliteJournalStore implements JournalStore {
     return Promise.resolve(rows.map((row) => this.rowToRun(row)));
   }
 
-  async claimRunForRecovery(runId: string): Promise<ExecutionRun | null> {
-    const info = this.db
+  async claimRunForRecovery(runId: string): Promise<RecoveryClaim | null> {
+    const ownerToken = randomUUID();
+    // Single atomic statement: the claimed row (with its freshly advanced
+    // generation and owner_token) is returned by the SAME UPDATE, so a
+    // concurrent claim cannot leak another worker's generation into this handle.
+    const row = this.db
       .prepare(
-        "UPDATE runs SET status = 'recovering', updated_at = ? WHERE run_id = ? AND status IN ('running', 'recovering')",
+        `UPDATE runs
+         SET status = 'recovering',
+             recovery_generation = recovery_generation + 1,
+             owner_token = ?,
+             updated_at = ?
+         WHERE run_id = ? AND status IN ('running', 'recovering')
+         RETURNING *`,
       )
-      .run(new Date().toISOString(), runId);
-    if (info.changes === 0) return Promise.resolve(null);
-    return this.getRun(runId);
+      .get(ownerToken, new Date().toISOString(), runId) as
+      | Record<string, unknown>
+      | undefined;
+    if (!row) return null;
+
+    const run = this.rowToRun(row);
+    return { run, generation: run.recoveryGeneration, ownerToken };
   }
 
   async deleteRunsOlderThan(maxAgeMs: number): Promise<number> {

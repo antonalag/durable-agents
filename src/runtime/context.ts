@@ -19,6 +19,8 @@ export interface DurableContextOptions {
   replayCursor: Map<string, OutcomeRecord>;
   eventBus: EventBus;
   signal: AbortSignal;
+  /** Fencing generation this context holds; every store write is gated on it. */
+  generation: number;
 }
 
 export class DurableContextImpl {
@@ -31,6 +33,7 @@ export class DurableContextImpl {
   private replayedKeys = new Set<string>();
   private store: JournalStore;
   private eventBus: EventBus;
+  private generation: number;
 
   constructor(opts: DurableContextOptions) {
     this.run = opts.run;
@@ -39,10 +42,16 @@ export class DurableContextImpl {
     this.replayCursor = opts.replayCursor;
     this.store = opts.store;
     this.eventBus = opts.eventBus;
+    this.generation = opts.generation;
   }
 
   get currentSequence(): number {
     return this.sequence;
+  }
+
+  /** Fencing generation this context holds. Adapters thread it into store writes. */
+  get currentGeneration(): number {
+    return this.generation;
   }
 
   wasReplayed(operationKey: string): boolean {
@@ -76,7 +85,7 @@ export class DurableContextImpl {
       startedAt: now,
       cost: zeroCost,
       attempt: 1,
-    });
+    }, this.generation);
 
     this.eventBus.emit('step:started', {
       type: 'step:started',
@@ -102,12 +111,12 @@ export class DurableContextImpl {
         tokens: zeroCost,
         durationMs,
         recordedAt: new Date(),
-      });
+      }, this.generation);
 
       await this.store.updateStep(stepId, {
         status: 'completed',
         completedAt: new Date(),
-      });
+      }, this.generation);
 
       this.eventBus.emit('step:completed', {
         type: 'step:completed',
@@ -126,7 +135,7 @@ export class DurableContextImpl {
       await this.store.updateStep(stepId, {
         status: 'failed',
         completedAt: new Date(),
-      });
+      }, this.generation);
       throw error;
     }
   }
@@ -185,7 +194,7 @@ export class DurableContextImpl {
       startedAt: now,
       cost: zeroCost,
       attempt: 1,
-    });
+    }, this.generation);
 
     this.eventBus.emit('step:started', {
       type: 'step:started',
@@ -211,12 +220,12 @@ export class DurableContextImpl {
         tokens: zeroCost,
         durationMs,
         recordedAt: new Date(),
-      });
+      }, this.generation);
 
       await this.store.updateStep(stepId, {
         status: 'completed',
         completedAt: new Date(),
-      });
+      }, this.generation);
 
       this.eventBus.emit('step:completed', {
         type: 'step:completed',
@@ -234,7 +243,7 @@ export class DurableContextImpl {
       await this.store.updateStep(stepId, {
         status: 'failed',
         completedAt: new Date(),
-      });
+      }, this.generation);
       throw error;
     }
   }
@@ -258,7 +267,7 @@ export class DurableContextImpl {
       startedAt: now,
       cost: zeroCost,
       attempt: 1,
-    });
+    }, this.generation);
 
     const startMs = Date.now();
     const result = await fn();
@@ -273,12 +282,12 @@ export class DurableContextImpl {
       tokens: zeroCost,
       durationMs,
       recordedAt: new Date(),
-    });
+    }, this.generation);
 
     await this.store.updateStep(stepId, {
       status: 'completed',
       completedAt: new Date(),
-    });
+    }, this.generation);
 
     return result;
   }

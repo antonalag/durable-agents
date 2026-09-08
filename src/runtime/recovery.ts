@@ -52,8 +52,9 @@ export class RecoveryEngine {
       initialCost += outcome.tokens.costUsd;
     }
 
+    const generation = run.recoveryGeneration;
     const heartbeatInterval = run.config.heartbeatIntervalMs ?? 10_000;
-    const heartbeat = new Heartbeat(this.store, runId, heartbeatInterval, this.eventBus);
+    const heartbeat = new Heartbeat(this.store, runId, heartbeatInterval, generation, this.eventBus);
 
     const ctx = new DurableContextImpl({
       run,
@@ -62,6 +63,7 @@ export class RecoveryEngine {
       replayCursor,
       eventBus: this.eventBus,
       signal: new AbortController().signal,
+      generation,
     });
 
     heartbeat.start();
@@ -70,7 +72,7 @@ export class RecoveryEngine {
       const result = await fn(ctx, input);
 
       for (const stepId of stepsToHeal) {
-        await this.store.updateStep(stepId, { status: 'completed', completedAt: new Date() });
+        await this.store.updateStep(stepId, { status: 'completed', completedAt: new Date() }, generation);
       }
 
       await this.store.updateRun(runId, {
@@ -80,7 +82,7 @@ export class RecoveryEngine {
           cost: initialCost,
           recoveryCount: run.totals.recoveryCount + 1,
         },
-      });
+      }, generation);
 
       this.eventBus.emit('run:recovered', {
         type: 'run:recovered',
@@ -95,7 +97,7 @@ export class RecoveryEngine {
     } catch (error: unknown) {
       heartbeat.stop();
 
-      await this.store.updateRun(runId, { status: 'failed' });
+      await this.store.updateRun(runId, { status: 'failed' }, generation);
 
       this.eventBus.emit('run:failed', {
         type: 'run:failed',

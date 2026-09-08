@@ -85,6 +85,8 @@ export class DurableWorkflow<TInput, TOutput> {
   private loopConfig: LoopConfig | undefined;
   private activeRuns = new Map<string, AbortController>();
   private lifecycleStates = new Map<string, RunLifecycleState>();
+  /** Fencing generation each active run holds; the source of truth for terminate(). */
+  private runGenerations = new Map<string, number>();
 
   constructor(name: string, fn: WorkflowFn<TInput, TOutput>, opts: DurableWorkflowOptions) {
     const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? 10_000;
@@ -138,13 +140,16 @@ export class DurableWorkflow<TInput, TOutput> {
     };
 
     const run: ExecutionRun = await this.store.createRun(config);
-    await this.store.updateRun(run.runId, { status: 'running' });
+    // A normally-started run owns generation 0 until a recovery claim advances it.
+    const generation = run.recoveryGeneration;
+    await this.store.updateRun(run.runId, { status: 'running' }, generation);
     const activeRun: ExecutionRun = { ...run, status: 'running' };
 
     this.activeRuns.set(activeRun.runId, abortController);
     this.lifecycleStates.set(activeRun.runId, lifecycle);
+    this.runGenerations.set(activeRun.runId, generation);
 
-    const heartbeat = new Heartbeat(this.store, activeRun.runId, this.heartbeatIntervalMs, this.eventBus);
+    const heartbeat = new Heartbeat(this.store, activeRun.runId, this.heartbeatIntervalMs, generation, this.eventBus);
     heartbeat.start();
 
     this.eventBus.emit('run:started', {
@@ -161,6 +166,7 @@ export class DurableWorkflow<TInput, TOutput> {
       replayCursor: new Map(),
       eventBus: this.eventBus,
       signal,
+      generation,
     });
 
     const originalStep = ctx.step.bind(ctx);
@@ -330,7 +336,7 @@ export class DurableWorkflow<TInput, TOutput> {
     try {
       const result = await this.fn(ctx, input);
 
-      await this.store.updateRun(activeRun.runId, { status: 'completed', totals: activeRun.totals });
+      await this.store.updateRun(activeRun.runId, { status: 'completed', totals: activeRun.totals }, generation);
 
       this.eventBus.emit('run:completed', {
         type: 'run:completed',
@@ -355,7 +361,7 @@ export class DurableWorkflow<TInput, TOutput> {
           await this.store.updateRun(activeRun.runId, {
             status: 'terminated',
             metadata: { ...activeRun.metadata, terminationReason: reason },
-          });
+          }, generation);
           return undefined as never;
         }
         return undefined as never;
@@ -367,11 +373,11 @@ export class DurableWorkflow<TInput, TOutput> {
         await this.store.updateRun(activeRun.runId, {
           status: 'terminated',
           metadata: { ...activeRun.metadata, terminationReason: reason },
-        });
+        }, generation);
         return undefined as never;
       }
 
-      await this.store.updateRun(activeRun.runId, { status: 'failed' });
+      await this.store.updateRun(activeRun.runId, { status: 'failed' }, generation);
 
       this.eventBus.emit('run:failed', {
         type: 'run:failed',
@@ -384,6 +390,7 @@ export class DurableWorkflow<TInput, TOutput> {
     } finally {
       this.activeRuns.delete(activeRun.runId);
       this.lifecycleStates.delete(activeRun.runId);
+      this.runGenerations.delete(activeRun.runId);
       heartbeat.stop();
     }
   }
@@ -411,17 +418,32 @@ export class DurableWorkflow<TInput, TOutput> {
       lifecycle.terminationReason = 'kill_switch';
     }
 
+    // Use the generation THIS owner holds — never re-read it from the store, or
+    // a worker that has since been reclaimed could legitimize its own write
+    // against the new owner's generation. runGenerations is an invariant of
+    // activeRuns registration (set together in run()), so an active run without
+    // a recorded generation is an internal inconsistency: fail loudly rather
+    // than silently defaulting to 0 and writing against an unknown generation.
+    const generation = this.runGenerations.get(runId);
+    if (generation === undefined) {
+      throw new DurableError(
+        'RUN_TERMINATED',
+        `Run ${runId} is active but its held generation is unknown; refusing to terminate against an unverified generation`,
+      );
+    }
+
     try {
-      // Persist termination state FIRST (durable store is source of truth)
+      // Persist termination state FIRST (durable store is source of truth).
       await this.store.updateRun(runId, {
         status: 'terminated',
         metadata: { terminationReason: 'kill_switch', terminationDetail: reason },
-      });
+      }, generation);
     } catch (error) {
       // Best-effort local cleanup even on store failure
       abortController.abort();
       this.activeRuns.delete(runId);
       this.lifecycleStates.delete(runId);
+      this.runGenerations.delete(runId);
       throw error;
     }
 
@@ -429,6 +451,7 @@ export class DurableWorkflow<TInput, TOutput> {
     abortController.abort();
     this.activeRuns.delete(runId);
     this.lifecycleStates.delete(runId);
+    this.runGenerations.delete(runId);
   }
 
   private async recoverStaleRuns(): Promise<void> {
@@ -438,12 +461,22 @@ export class DurableWorkflow<TInput, TOutput> {
     for (const run of staleRuns) {
       if (run.config.name !== this.name) continue;
 
-      const claimed = await this.store.claimRunForRecovery(run.runId);
-      if (!claimed) continue;
+      const claim = await this.store.claimRunForRecovery(run.runId);
+      if (!claim) continue;
 
+      // Ownership during recovery lives entirely inside RecoveryEngine.recover():
+      // it drives the run under claim.generation with its own Heartbeat and
+      // context. The recovering run is deliberately NOT registered in
+      // activeRuns/lifecycleStates/runGenerations, so terminate() refuses it
+      // (RUN_TERMINATED: "not active") rather than legitimizing a write with a
+      // half-owned generation. A recovering run also has no AbortController yet;
+      // wiring terminate() to abort an in-flight recovery is Wave 2 (20.7). Do
+      // NOT register claim.generation here without also giving the recovery an
+      // abort controller + lifecycle state — a lone set would let terminate()
+      // pass its guard but be unable to actually stop the recovery.
       try {
         const input = run.metadata?.input as TInput;
-        await recoveryEngine.recover(run.runId, this.fn, input);
+        await recoveryEngine.recover(claim.run.runId, this.fn, input);
       } catch {
         // Failure isolation: RecoveryEngine already marks run as failed and emits run:failed.
         // Continue recovering remaining stale runs.
