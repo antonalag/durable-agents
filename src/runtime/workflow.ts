@@ -348,6 +348,32 @@ export class DurableWorkflow<TInput, TOutput> {
 
       return result;
     } catch (error: unknown) {
+      // Fenced: another worker reclaimed this run at a higher generation. This
+      // is NOT a workflow failure — yield to the Fencing_Winner. Abort in-flight
+      // work, write NO terminal state, emit NO run:failed (Req 9.16, 9.17).
+      if (error instanceof DurableError && error.code === 'FENCED') {
+        abortController.abort();
+        return undefined as never;
+      }
+
+      // A graceful-stop/terminated terminal write can itself be fenced if a
+      // reclaim races the stop. Guard those writes so a FENCED there also yields
+      // cleanly (abort, no run:failed) instead of escaping as a raw error.
+      const writeTerminal = async (
+        updates: Parameters<JournalStore['updateRun']>[1],
+      ): Promise<boolean> => {
+        try {
+          await this.store.updateRun(activeRun.runId, updates, generation);
+          return true;
+        } catch (writeError) {
+          if (writeError instanceof DurableError && writeError.code === 'FENCED') {
+            abortController.abort();
+            return false;
+          }
+          throw writeError;
+        }
+      };
+
       // Kill switch: abort was triggered externally via terminate()
       // terminate() already updates the store, so just return
       if (error instanceof Error && error.name === 'AbortError') {
@@ -358,10 +384,10 @@ export class DurableWorkflow<TInput, TOutput> {
         // Graceful stop completed: phase transitioned to terminated and threw AbortError
         if (lifecycle.phase === 'terminated' || lifecycle.phase === 'stopping') {
           const reason = lifecycle.terminationReason ?? 'budget_exceeded';
-          await this.store.updateRun(activeRun.runId, {
+          await writeTerminal({
             status: 'terminated',
             metadata: { ...activeRun.metadata, terminationReason: reason },
-          }, generation);
+          });
           return undefined as never;
         }
         return undefined as never;
@@ -370,14 +396,17 @@ export class DurableWorkflow<TInput, TOutput> {
       // Graceful stop completed or timed out — mark terminated
       if (lifecycle.phase === 'terminated' || lifecycle.phase === 'stopping') {
         const reason = lifecycle.terminationReason ?? 'budget_exceeded';
-        await this.store.updateRun(activeRun.runId, {
+        await writeTerminal({
           status: 'terminated',
           metadata: { ...activeRun.metadata, terminationReason: reason },
-        }, generation);
+        });
         return undefined as never;
       }
 
-      await this.store.updateRun(activeRun.runId, { status: 'failed' }, generation);
+      if (!(await writeTerminal({ status: 'failed' }))) {
+        // Fenced while marking failed: yield to the Fencing_Winner, no run:failed.
+        return undefined as never;
+      }
 
       this.eventBus.emit('run:failed', {
         type: 'run:failed',
@@ -439,7 +468,11 @@ export class DurableWorkflow<TInput, TOutput> {
         metadata: { terminationReason: 'kill_switch', terminationDetail: reason },
       }, generation);
     } catch (error) {
-      // Best-effort local cleanup even on store failure
+      // If fenced, this owner has been superseded: the terminal write is
+      // rejected, so we write NO 'terminated', emit NO run:failed, unwind
+      // cleanly, and propagate FENCED so the caller learns the termination did
+      // not take effect (Req 9.29). A store failure unwinds the same way. Either
+      // way we release local state (best-effort) and abort in-flight work.
       abortController.abort();
       this.activeRuns.delete(runId);
       this.lifecycleStates.delete(runId);
@@ -465,21 +498,21 @@ export class DurableWorkflow<TInput, TOutput> {
       if (!claim) continue;
 
       // Ownership during recovery lives entirely inside RecoveryEngine.recover():
-      // it drives the run under claim.generation with its own Heartbeat and
-      // context. The recovering run is deliberately NOT registered in
-      // activeRuns/lifecycleStates/runGenerations, so terminate() refuses it
-      // (RUN_TERMINATED: "not active") rather than legitimizing a write with a
-      // half-owned generation. A recovering run also has no AbortController yet;
-      // wiring terminate() to abort an in-flight recovery is Wave 2 (20.7). Do
-      // NOT register claim.generation here without also giving the recovery an
-      // abort controller + lifecycle state — a lone set would let terminate()
+      // it drives the run under claim.generation with its own Heartbeat, context,
+      // and AbortController (used to unwind on FENCED). The recovering run is
+      // deliberately NOT registered in activeRuns/lifecycleStates/runGenerations,
+      // so the workflow's terminate() refuses it (RUN_TERMINATED: "not active")
+      // rather than legitimizing a write with a half-owned generation. Do NOT
+      // register claim.generation here without also giving the workflow a handle
+      // to the recovery's abort controller — a lone set would let terminate()
       // pass its guard but be unable to actually stop the recovery.
       try {
         const input = run.metadata?.input as TInput;
-        await recoveryEngine.recover(claim.run.runId, this.fn, input);
+        await recoveryEngine.recover(claim.run.runId, this.fn, input, claim.generation);
       } catch {
-        // Failure isolation: RecoveryEngine already marks run as failed and emits run:failed.
-        // Continue recovering remaining stale runs.
+        // Failure isolation: a non-fenced failure is already marked failed + run:failed
+        // by RecoveryEngine; a fenced recovery yields silently (no terminal state,
+        // no run:failed). Either way, continue recovering remaining stale runs.
       }
     }
   }

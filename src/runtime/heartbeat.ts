@@ -33,13 +33,28 @@ export class Heartbeat {
   }
 
   private beat(): void {
-    this.store.updateHeartbeat(this.runId, this.generation).catch((err: unknown) => {
-      this.eventBus?.emit('heartbeat:failed', {
-        type: 'heartbeat:failed',
-        timestamp: new Date(),
-        runId: this.runId,
-        error: err instanceof Error ? err : new Error(String(err)),
+    this.store
+      .updateHeartbeat(this.runId, this.generation)
+      .then((applied: boolean) => {
+        if (applied) return;
+        // Not applied means the run's generation has advanced past ours: we've
+        // been fenced. Stop beating so we no longer mask our own staleness, and
+        // surface a distinct signal (separate from a transient store failure).
+        this.stop();
+        this.eventBus?.emit('heartbeat:fenced', {
+          type: 'heartbeat:fenced',
+          timestamp: new Date(),
+          runId: this.runId,
+          generation: this.generation,
+        });
+      })
+      .catch((err: unknown) => {
+        this.eventBus?.emit('heartbeat:failed', {
+          type: 'heartbeat:failed',
+          timestamp: new Date(),
+          runId: this.runId,
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
       });
-    });
   }
 }

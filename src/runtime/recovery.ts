@@ -1,9 +1,14 @@
 import type { ExecutionRun, OutcomeRecord, RunRecoveredEvent, RunFailedEvent } from '../core/types.js';
+import { DurableError } from '../errors.js';
 import type { JournalStore } from '../stores/interface.js';
 import { DurableContextImpl } from './context.js';
 import { EventBus } from './event-bus.js';
 import { Heartbeat } from './heartbeat.js';
 import type { WorkflowFn } from './workflow.js';
+
+function isFenced(error: unknown): boolean {
+  return error instanceof DurableError && error.code === 'FENCED';
+}
 
 export class RecoveryEngine {
   constructor(
@@ -20,6 +25,7 @@ export class RecoveryEngine {
     runId: string,
     fn: WorkflowFn<TInput, TOutput>,
     input: TInput,
+    generation: number,
   ): Promise<TOutput> {
     const run = await this.store.getRun(runId);
     if (!run) {
@@ -52,9 +58,12 @@ export class RecoveryEngine {
       initialCost += outcome.tokens.costUsd;
     }
 
-    const generation = run.recoveryGeneration;
     const heartbeatInterval = run.config.heartbeatIntervalMs ?? 10_000;
     const heartbeat = new Heartbeat(this.store, runId, heartbeatInterval, generation, this.eventBus);
+
+    // The recovery owns this run under `generation`. If it is fenced, we abort
+    // in-flight work through the same AbortSignal the context observes.
+    const abortController = new AbortController();
 
     const ctx = new DurableContextImpl({
       run,
@@ -62,7 +71,7 @@ export class RecoveryEngine {
       mode: 'replay',
       replayCursor,
       eventBus: this.eventBus,
-      signal: new AbortController().signal,
+      signal: abortController.signal,
       generation,
     });
 
@@ -96,6 +105,14 @@ export class RecoveryEngine {
       return result;
     } catch (error: unknown) {
       heartbeat.stop();
+
+      // Fenced: another worker holds a higher generation. This is NOT a workflow
+      // failure — yield the run to the Fencing_Winner. Abort in-flight work, but
+      // write no terminal state and emit no run:failed (Req 9.16, 9.17).
+      if (isFenced(error)) {
+        abortController.abort();
+        throw error;
+      }
 
       await this.store.updateRun(runId, { status: 'failed' }, generation);
 
