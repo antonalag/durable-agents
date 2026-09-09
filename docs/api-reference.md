@@ -92,7 +92,12 @@ class RecoveryEngine {
   constructor(store: JournalStore, eventBus: EventBus, staleTimeoutMs: number);
 
   detectStaleRuns(): Promise<ExecutionRun[]>;
-  recover<TInput, TOutput>(runId: string, fn: WorkflowFn<TInput, TOutput>, input: TInput): Promise<TOutput>;
+  recover<TInput, TOutput>(
+    runId: string,
+    fn: WorkflowFn<TInput, TOutput>,
+    input: TInput,
+    generation: number,
+  ): Promise<TOutput>;
 }
 ```
 
@@ -104,6 +109,8 @@ class RecoveryEngine {
 | `eventBus` | `EventBus` | — | Event emitter for recovery events |
 | `staleTimeoutMs` | `number` | — | Heartbeat silence threshold (ms) |
 
+The `generation` passed to `recover()` is the fencing token returned by `claimRunForRecovery` (the `RecoveryClaim.generation`). The engine threads it into every ownership-sensitive write, so a worker whose claim has been superseded is rejected rather than corrupting the winner's journal.
+
 **Usage:**
 
 ```ts
@@ -112,9 +119,15 @@ import { RecoveryEngine, EventBus, SqliteJournalStore } from 'durable-agents';
 const engine = new RecoveryEngine(store, new EventBus(), 30_000);
 const stale = await engine.detectStaleRuns();
 for (const run of stale) {
-  await engine.recover(run.runId, workflowFn, run.metadata.input);
+  const claim = await store.claimRunForRecovery(run.runId);
+  if (!claim) continue; // run is terminal, or another worker raced ahead
+  await engine.recover(claim.run.runId, workflowFn, run.metadata.input, claim.generation);
 }
 ```
+
+> **Generation fencing scope.** Generation fencing applies to the core `RecoveryEngine` recovery path only. When a stale run is reclaimed, its `recovery_generation` advances and every subsequent ownership-sensitive write (`updateHeartbeat`, `createStep`, `recordOutcome`, `updateStep`, `updateRun`, including `terminate()`) must carry the held generation; a stale worker's writes are rejected with `DurableError('FENCED')`.
+>
+> This is single-database fencing for the documented single-store deployment model — it is **not** distributed leader election or universal cross-store coordination. The LangGraph adapter recovery path is deliberately **outside** the fence: it uses a create-new-run recovery model (it marks matching stale runs failed and starts a fresh run) rather than reclaiming a generation. See the [recovery guide](./guides/recovery.md).
 
 ---
 

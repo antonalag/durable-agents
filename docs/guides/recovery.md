@@ -262,7 +262,11 @@ When using `autoRecover`, recovery failures are isolated per-run. The engine cat
 
 ### Duplicate Recovery Prevention
 
-The heartbeat restarts during recovery. If two processes attempt to recover the same run concurrently, the second process will see the run's heartbeat has been refreshed and will no longer consider it stale. This provides natural deduplication without distributed locks.
+The heartbeat restarts during recovery, so a live recovery keeps its run fresh and other workers stop treating it as stale. That alone is a timing-based deterrent, not a guarantee — two workers can still claim the same stale run before either refreshes the heartbeat.
+
+The actual guarantee is **generation fencing**. `claimRunForRecovery` advances a monotonic `recovery_generation` token and returns it in the `RecoveryClaim`. Every ownership-sensitive write (`updateHeartbeat`, `createStep`, `recordOutcome`, `updateStep`, `updateRun`, and `terminate()`) must carry the held generation and is applied only while it still matches the persisted value. When two workers race, each claim gets a distinct, strictly increasing generation; only the highest-generation holder can write, and the superseded worker's writes are rejected with `DurableError('FENCED')`. The fenced worker stops its heartbeat, aborts in-flight work, and writes no terminal state (it does not emit `run:failed`) — it yields the run to the winner.
+
+This is single-database fencing for the documented single-store deployment model, **not** distributed leader election. The LangGraph adapter recovery path is deliberately outside the fence: it uses a create-new-run model (marks matching stale runs failed, starts a fresh run) rather than reclaiming a generation.
 
 ### Non-Deterministic Workflow Changes
 
