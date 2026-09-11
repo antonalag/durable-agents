@@ -95,8 +95,8 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
       }
 
       for (const staleRun of matching) {
-        // This create-new-run path stays outside the recovery fence (Req 9.21);
-        // marking a stale run failed uses that run's own held generation.
+        // This create-new-run path stays outside the recovery fence; marking a
+        // stale run failed uses that run's own held generation.
         await store.updateRun(
           staleRun.runId,
           { status: 'failed' },

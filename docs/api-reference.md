@@ -534,10 +534,18 @@ interface ExecutionRun {
   totals: { cost: number; tokens: number; steps: number; recoveryCount: number };
   createdAt: Date;
   updatedAt: Date;
-  lastHeartbeat: Date;
+  recoveryGeneration: number;
+  ownerToken?: string;
 }
 
-type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stale' | 'terminated';
+type RunStatus =
+  | 'pending'
+  | 'running'
+  | 'recovering'
+  | 'completed'
+  | 'failed'
+  | 'stale'
+  | 'terminated';
 ```
 
 ---
@@ -606,27 +614,45 @@ interface TokenCost {
 
 Persistence interface for runs, steps, and outcomes. Implement this to add a custom backend.
 
+Ownership-sensitive writes (`updateRun`, `createStep`, `updateStep`, `recordOutcome`, `updateHeartbeat`) take a mandatory `expectedGeneration` and are applied only while the run's persisted `recovery_generation` still matches it. On mismatch, `updateRun`/`createStep`/`updateStep`/`recordOutcome` throw `DurableError('FENCED')`; `updateHeartbeat` does not throw and returns `false` instead. See [Generation fencing](#recoveryengine).
+
 ```ts
 interface JournalStore {
   createRun(config: RunConfig): Promise<ExecutionRun>;
   getRun(runId: string): Promise<ExecutionRun | null>;
-  updateRun(runId: string, updates: Partial<Pick<ExecutionRun, 'status' | 'metadata' | 'totals'>>): Promise<ExecutionRun>;
+  updateRun(
+    runId: string,
+    updates: Partial<Pick<ExecutionRun, 'status' | 'metadata' | 'totals'>>,
+    expectedGeneration: number,
+  ): Promise<ExecutionRun>;
   listRuns(filter?: ListRunsFilter): Promise<ExecutionRun[]>;
   deleteRun(runId: string): Promise<void>;
 
-  createStep(step: Omit<Step, 'completedAt'>): Promise<Step>;
+  createStep(step: Omit<Step, 'completedAt'>, expectedGeneration: number): Promise<Step>;
   getStep(stepId: string): Promise<Step | null>;
-  updateStep(stepId: string, updates: Partial<Pick<Step, 'status' | 'completedAt' | 'cost' | 'attempt'>>): Promise<Step>;
+  updateStep(
+    stepId: string,
+    updates: Partial<Pick<Step, 'status' | 'completedAt' | 'cost' | 'attempt'>>,
+    expectedGeneration: number,
+  ): Promise<Step>;
   listSteps(runId: string): Promise<Step[]>;
 
-  recordOutcome(outcome: OutcomeRecord): Promise<OutcomeRecord>;
+  recordOutcome(outcome: OutcomeRecord, expectedGeneration: number): Promise<OutcomeRecord>;
   getOutcome(outcomeId: string): Promise<OutcomeRecord | null>;
   getOutcomeByKey(operationKey: string): Promise<OutcomeRecord | null>;
   listOutcomes(stepId: string): Promise<OutcomeRecord[]>;
 
-  updateHeartbeat(runId: string): Promise<void>;
+  updateHeartbeat(runId: string, expectedGeneration: number): Promise<boolean>;
   findStaleRuns(timeoutMs: number): Promise<ExecutionRun[]>;
+
+  claimRunForRecovery(runId: string): Promise<RecoveryClaim | null>;
   deleteRunsOlderThan(maxAgeMs: number): Promise<number>;
+}
+
+interface RecoveryClaim {
+  run: ExecutionRun;
+  generation: number;
+  ownerToken: string;
 }
 ```
 
@@ -646,7 +672,9 @@ type DurableEvent =
   | StepCompletedEvent
   | BudgetWarningEvent
   | BudgetExceededEvent
-  | LoopDetectedEvent;
+  | LoopDetectedEvent
+  | HeartbeatFailedEvent
+  | HeartbeatFencedEvent;
 
 type EventMap = {
   'run:started': RunStartedEvent;
@@ -658,8 +686,12 @@ type EventMap = {
   'budget:warning': BudgetWarningEvent;
   'budget:exceeded': BudgetExceededEvent;
   'loop:detected': LoopDetectedEvent;
+  'heartbeat:failed': HeartbeatFailedEvent;
+  'heartbeat:fenced': HeartbeatFencedEvent;
 };
 ```
+
+`heartbeat:failed` fires when a heartbeat write rejects (transient store error). `heartbeat:fenced` fires when a heartbeat write is not applied because the run's generation advanced past the one this worker holds — the heartbeat stops beating and yields the run to the newer claimant.
 
 ---
 
@@ -769,8 +801,11 @@ type DurableErrorCode =
   | 'RUN_TERMINATED'
   | 'STORE_ERROR'
   | 'INVALID_CONFIG'
+  | 'FENCED'
   | 'DASHBOARD_PORT_IN_USE';
 ```
+
+`'FENCED'` is thrown by ownership-sensitive `JournalStore` writes when the caller's held generation no longer matches the run's persisted `recovery_generation` (see [Generation fencing](#recoveryengine)).
 
 **Usage:**
 

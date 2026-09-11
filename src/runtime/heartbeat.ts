@@ -37,9 +37,9 @@ export class Heartbeat {
       .updateHeartbeat(this.runId, this.generation)
       .then((applied: boolean) => {
         if (applied) return;
-        // Not applied means the run's generation has advanced past ours: we've
-        // been fenced. Stop beating so we no longer mask our own staleness, and
-        // surface a distinct signal (separate from a transient store failure).
+        // Not applied: the run's generation advanced past ours. Stop beating so
+        // we stop masking our staleness, and signal fenced (distinct from a
+        // transient store failure).
         this.stop();
         this.eventBus?.emit('heartbeat:fenced', {
           type: 'heartbeat:fenced',

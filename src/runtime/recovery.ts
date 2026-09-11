@@ -61,8 +61,7 @@ export class RecoveryEngine {
     const heartbeatInterval = run.config.heartbeatIntervalMs ?? 10_000;
     const heartbeat = new Heartbeat(this.store, runId, heartbeatInterval, generation, this.eventBus);
 
-    // The recovery owns this run under `generation`. If it is fenced, we abort
-    // in-flight work through the same AbortSignal the context observes.
+    // Aborting on fence unwinds in-flight work via the signal the context observes.
     const abortController = new AbortController();
 
     const ctx = new DurableContextImpl({
@@ -106,9 +105,8 @@ export class RecoveryEngine {
     } catch (error: unknown) {
       heartbeat.stop();
 
-      // Fenced: another worker holds a higher generation. This is NOT a workflow
-      // failure — yield the run to the Fencing_Winner. Abort in-flight work, but
-      // write no terminal state and emit no run:failed (Req 9.16, 9.17).
+      // Fenced means a higher-generation worker owns the run now. Yield to it:
+      // abort, but write no terminal state and emit no run:failed.
       if (isFenced(error)) {
         abortController.abort();
         throw error;
