@@ -15,7 +15,7 @@ describe('DurableContextImpl', () => {
     store = new SqliteJournalStore(':memory:');
     eventBus = new EventBus();
     run = await store.createRun({ name: 'test-wf' });
-    run = await store.updateRun(run.runId, { status: 'running' });
+    run = await store.updateRun(run.runId, { status: 'running' }, 0);
   });
 
   function makeContext(opts?: {
@@ -30,6 +30,7 @@ describe('DurableContextImpl', () => {
       replayCursor: opts?.replayCursor ?? new Map(),
       eventBus,
       signal: opts?.signal ?? new AbortController().signal,
+      generation: 0,
     });
   }
 
@@ -179,7 +180,7 @@ describe('DurableContextImpl', () => {
       startedAt: new Date(),
       cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
       attempt: 1,
-    });
+    }, 0);
 
     await store.recordOutcome({
       outcomeId: randomUUID(),
@@ -190,7 +191,7 @@ describe('DurableContextImpl', () => {
       tokens: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
       durationMs: 1,
       recordedAt: new Date(),
-    });
+    }, 0);
 
     const ctx = makeContext();
 

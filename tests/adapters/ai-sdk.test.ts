@@ -20,7 +20,7 @@ describe('withDurability', () => {
     store = new SqliteJournalStore(':memory:');
     eventBus = new EventBus();
     run = await store.createRun({ name: 'test-ai-sdk' });
-    run = await store.updateRun(run.runId, { status: 'running' });
+    run = await store.updateRun(run.runId, { status: 'running' }, 0);
 
     ctx = new DurableContextImpl({
       run,
@@ -29,6 +29,7 @@ describe('withDurability', () => {
       replayCursor: new Map(),
       eventBus,
       signal: new AbortController().signal,
+      generation: 0,
     });
 
     durableCtx = { store, ctx, eventBus };

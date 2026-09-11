@@ -3,7 +3,8 @@ import { SqliteJournalStore } from '../../src/stores/sqlite.js';
 import { RecoveryEngine } from '../../src/runtime/recovery.js';
 import { EventBus } from '../../src/runtime/event-bus.js';
 import { DurableError } from '../../src/errors.js';
-import type { DurableContextImpl, WorkflowFn } from '../../src/runtime/workflow.js';
+import type { DurableContextImpl } from '../../src/runtime/context.js';
+import type { WorkflowFn } from '../../src/runtime/workflow.js';
 
 function backdateHeartbeat(store: SqliteJournalStore, runId: string): void {
   const stale = new Date(Date.now() - 60_000).toISOString();

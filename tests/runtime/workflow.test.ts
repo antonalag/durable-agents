@@ -27,7 +27,7 @@ function createMockStore() {
     createRun: vi.fn().mockResolvedValue(fakeRun),
     updateRun: vi.fn().mockResolvedValue({ ...fakeRun, status: 'completed' }),
     getRun: vi.fn().mockResolvedValue(fakeRun),
-    updateHeartbeat: vi.fn().mockResolvedValue(undefined),
+    updateHeartbeat: vi.fn().mockResolvedValue(true),
     createStep: vi.fn().mockResolvedValue({
       stepId: 'step-1',
       runId: 'run-123',
@@ -91,7 +91,7 @@ describe('DurableWorkflow', () => {
       expect(store.createRun).toHaveBeenCalledTimes(1);
       expect(store.updateRun).toHaveBeenCalledWith('run-123', expect.objectContaining({
         status: 'completed',
-      }));
+      }), 0);
       expect(result).toBe('result:hello');
     });
   });
@@ -106,7 +106,7 @@ describe('DurableWorkflow', () => {
       await expect(workflow.run('input')).rejects.toThrow('workflow exploded');
       expect(store.updateRun).toHaveBeenCalledWith('run-123', expect.objectContaining({
         status: 'failed',
-      }));
+      }), 0);
     });
   });
 
@@ -132,7 +132,7 @@ describe('DurableWorkflow', () => {
       expect(result).toBe('data');
 
       // Heartbeat fires immediately on start
-      expect(store.updateHeartbeat).toHaveBeenCalledWith('run-123');
+      expect(store.updateHeartbeat).toHaveBeenCalledWith('run-123', 0);
 
       const callCount = store.updateHeartbeat.mock.calls.length;
 

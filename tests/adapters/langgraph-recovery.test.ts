@@ -35,7 +35,7 @@ describe('LangGraph adapter replay uses original runId', () => {
 
   async function makeStaleRun(stepCount: number) {
     const staleRun = await store.createRun({ ...config, name: 'replay-test-wf' });
-    await store.updateRun(staleRun.runId, { status: 'running' });
+    await store.updateRun(staleRun.runId, { status: 'running' }, 0);
 
     // Backdate heartbeat so findStaleRuns picks it up
     const oldTime = new Date(Date.now() - 60_000).toISOString();
@@ -56,7 +56,7 @@ describe('LangGraph adapter replay uses original runId', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       const operationKey = computeOperationKey(staleRun.runId, 'llm-call', i);
       await store.recordOutcome({
@@ -68,7 +68,7 @@ describe('LangGraph adapter replay uses original runId', () => {
         tokens: { inputTokens: 10 * (i + 1), outputTokens: 5 * (i + 1), costUsd: 0 },
         durationMs: 100,
         recordedAt: new Date(),
-      });
+      }, 0);
     }
 
     return staleRun;
@@ -97,7 +97,7 @@ describe('LangGraph adapter replay uses original runId', () => {
       cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
       attempt: 1,
     };
-    await store.createStep(replayStep);
+    await store.createStep(replayStep, 0);
 
     await mw.afterModel!({
       runId: newRun.runId,
@@ -136,7 +136,7 @@ describe('LangGraph adapter replay uses original runId', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       await mw.afterModel!({
         runId: newRun.runId,
@@ -181,7 +181,7 @@ describe('LangGraph adapter replay uses original runId', () => {
       cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
       attempt: 1,
     };
-    await store.createStep(replayStep);
+    await store.createStep(replayStep, 0);
 
     await mw.afterModel!({
       runId: newRun.runId,
@@ -203,7 +203,7 @@ describe('LangGraph adapter replay uses original runId', () => {
       cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
       attempt: 1,
     };
-    await store.createStep(freshStep);
+    await store.createStep(freshStep, 0);
 
     await mw.afterModel!({
       runId: newRun.runId,
@@ -229,7 +229,7 @@ describe('LangGraph adapter replay uses original runId', () => {
   it('full lifecycle: persist -> stale -> recover -> replay correct -> fresh correct', async () => {
     // Phase 1: Original run persists outcomes
     const originalRun = await store.createRun({ ...config, name: 'replay-test-wf' });
-    await store.updateRun(originalRun.runId, { status: 'running' });
+    await store.updateRun(originalRun.runId, { status: 'running' }, 0);
 
     const steps: Step[] = [];
     for (let i = 0; i < 2; i++) {
@@ -243,7 +243,7 @@ describe('LangGraph adapter replay uses original runId', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
       steps.push(step);
 
       const key = computeOperationKey(originalRun.runId, 'research', i);
@@ -256,7 +256,7 @@ describe('LangGraph adapter replay uses original runId', () => {
         tokens: { inputTokens: 50, outputTokens: 25, costUsd: 0.001 },
         durationMs: 200,
         recordedAt: new Date(),
-      });
+      }, 0);
     }
 
     // Phase 2: Simulate crash — backdate heartbeat to make the run stale
@@ -295,7 +295,7 @@ describe('LangGraph adapter replay uses original runId', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       await mw.afterModel!({
         runId: recoveryRun.runId,
@@ -322,7 +322,7 @@ describe('LangGraph adapter replay uses original runId', () => {
       cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
       attempt: 1,
     };
-    await store.createStep(freshStep);
+    await store.createStep(freshStep, 0);
 
     await mw.afterModel!({
       runId: recoveryRun.runId,

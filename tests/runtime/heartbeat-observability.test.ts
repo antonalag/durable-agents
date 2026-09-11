@@ -18,7 +18,7 @@ describe('heartbeat failure observability', () => {
         .mockRejectedValue(new Error('store unavailable')),
     } as unknown as JournalStore;
 
-    const heartbeat = new Heartbeat(store, 'run-1', 10_000, eventBus);
+    const heartbeat = new Heartbeat(store, 'run-1', 10_000, 0, eventBus);
     heartbeat.start();
 
     await new Promise((resolve) => setTimeout(resolve, 10));

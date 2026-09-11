@@ -23,6 +23,7 @@ describe('Property 8: Monotonically increasing sequence numbers', () => {
       replayCursor: new Map(),
       eventBus: new EventBus(),
       signal: new AbortController().signal,
+      generation: 0,
     });
   }
 
@@ -31,7 +32,7 @@ describe('Property 8: Monotonically increasing sequence numbers', () => {
       fc.asyncProperty(fc.integer({ min: 1, max: 50 }), async (n) => {
         const store = new SqliteJournalStore(':memory:');
         const run = await store.createRun({ name: 'seq-test' });
-        await store.updateRun(run.runId, { status: 'running' });
+        await store.updateRun(run.runId, { status: 'running' }, 0);
 
         const ctx = createContext(store, run.runId);
 
@@ -57,7 +58,7 @@ describe('Property 8: Monotonically increasing sequence numbers', () => {
       fc.asyncProperty(fc.integer({ min: 1, max: 10 }), async (n) => {
         const store = new SqliteJournalStore(':memory:');
         const run = await store.createRun({ name: 'par-test' });
-        await store.updateRun(run.runId, { status: 'running' });
+        await store.updateRun(run.runId, { status: 'running' }, 0);
 
         const ctx = createContext(store, run.runId);
 
@@ -90,7 +91,7 @@ describe('Property 8: Monotonically increasing sequence numbers', () => {
         async (k, m) => {
           const store = new SqliteJournalStore(':memory:');
           const run = await store.createRun({ name: 'mixed-test' });
-          await store.updateRun(run.runId, { status: 'running' });
+          await store.updateRun(run.runId, { status: 'running' }, 0);
 
           const ctx = createContext(store, run.runId);
 

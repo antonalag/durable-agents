@@ -13,7 +13,7 @@ describe('Property 3: Parallel preserves input ordering', () => {
           const store = new SqliteJournalStore(':memory:');
           try {
             const run = await store.createRun({ name: 'parallel-order-test' });
-            await store.updateRun(run.runId, { status: 'running' });
+            await store.updateRun(run.runId, { status: 'running' }, 0);
 
             const ctx = new DurableContextImpl({
               run,
@@ -22,6 +22,7 @@ describe('Property 3: Parallel preserves input ordering', () => {
               replayCursor: new Map(),
               eventBus: new EventBus(),
               signal: new AbortController().signal,
+              generation: 0,
             });
 
             const steps = values.map((val, i) => ({

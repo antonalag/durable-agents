@@ -31,7 +31,7 @@ describe('Property 1: Idempotent execution — at most once', () => {
         async (toolName, args, callCount) => {
           const store = new SqliteJournalStore(':memory:');
           const run = await store.createRun({ name: 'prop-test' });
-          await store.updateRun(run.runId, { status: 'running' });
+          await store.updateRun(run.runId, { status: 'running' }, 0);
 
           const ctx = new DurableContextImpl({
             run,
@@ -40,6 +40,7 @@ describe('Property 1: Idempotent execution — at most once', () => {
             replayCursor: new Map(),
             eventBus: new EventBus(),
             signal: new AbortController().signal,
+            generation: 0,
           });
 
           let invocations = 0;

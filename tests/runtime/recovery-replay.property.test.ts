@@ -105,7 +105,7 @@ describe('Property 2: Recovery replays K cached results and executes (L-K) remai
           };
 
           const engine = new RecoveryEngine(store, new EventBus(), 30_000);
-          await engine.recover(runId, workflowFn, null);
+          await engine.recover(runId, workflowFn, null, run.recoveryGeneration);
 
           expect(freshExecutions).toBe(L - K);
         },

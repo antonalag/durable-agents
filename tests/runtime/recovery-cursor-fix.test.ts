@@ -66,7 +66,7 @@ function createMockStore(opts: {
       Promise.resolve(outcomesByStep.get(stepId) ?? []),
     ),
     updateRun: vi.fn().mockResolvedValue({ ...run, status: 'completed' }),
-    updateHeartbeat: vi.fn().mockResolvedValue(undefined),
+    updateHeartbeat: vi.fn().mockResolvedValue(true),
     createStep: vi.fn().mockImplementation((step) => Promise.resolve({ ...step, completedAt: undefined })),
     updateStep: vi.fn().mockImplementation((stepId, updates) => Promise.resolve({ stepId, ...updates })),
     recordOutcome: vi.fn().mockImplementation((outcome) => Promise.resolve(outcome)),
@@ -106,7 +106,7 @@ describe('RecoveryEngine — cursor fix for running-step outcomes', () => {
       return r;
     };
 
-    const result = await engine.recover(runId, workflowFn, undefined);
+    const result = await engine.recover(runId, workflowFn, undefined, 0);
 
     expect(result).toBe('result-0');
     expect(stepFn).not.toHaveBeenCalled();
@@ -130,12 +130,12 @@ describe('RecoveryEngine — cursor fix for running-step outcomes', () => {
       return 'done';
     };
 
-    await engine.recover(runId, workflowFn, undefined);
+    await engine.recover(runId, workflowFn, undefined, 0);
 
     expect(store.updateStep).toHaveBeenCalledWith('step-0', expect.objectContaining({
       status: 'completed',
       completedAt: expect.any(Date),
-    }));
+    }), 0);
   });
 
   it('excludes running steps with NO outcome from cursor — fn() IS called', async () => {
@@ -155,7 +155,7 @@ describe('RecoveryEngine — cursor fix for running-step outcomes', () => {
       return r;
     };
 
-    const result = await engine.recover(runId, workflowFn, undefined);
+    const result = await engine.recover(runId, workflowFn, undefined, 0);
 
     expect(result).toBe('fresh-result');
     expect(stepFn).toHaveBeenCalledTimes(1);
@@ -179,7 +179,7 @@ describe('RecoveryEngine — cursor fix for running-step outcomes', () => {
       return 'ok';
     };
 
-    await engine.recover(runId, workflowFn, undefined);
+    await engine.recover(runId, workflowFn, undefined, 0);
 
     expect(store.recordOutcome).not.toHaveBeenCalled();
   });

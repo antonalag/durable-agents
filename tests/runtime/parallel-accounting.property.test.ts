@@ -18,31 +18,41 @@ class KeyedCostStore implements JournalStore {
 
   constructor(private readonly inner: SqliteJournalStore) {}
 
-  createRun = (c: Parameters<JournalStore['createRun']>[0]) => this.inner.createRun(c);
-  getRun = (id: string) => this.inner.getRun(id);
-  updateRun = (id: string, u: Parameters<JournalStore['updateRun']>[1]) =>
-    this.inner.updateRun(id, u);
-  listRuns = (f?: Parameters<JournalStore['listRuns']>[0]) => this.inner.listRuns(f);
-  deleteRun = (id: string) => this.inner.deleteRun(id);
-  createStep = (s: Parameters<JournalStore['createStep']>[0]) => this.inner.createStep(s);
-  getStep = (id: string) => this.inner.getStep(id);
-  updateStep = (id: string, u: Parameters<JournalStore['updateStep']>[1]) =>
-    this.inner.updateStep(id, u);
-  listSteps = (id: string) => this.inner.listSteps(id);
-  getOutcome = (id: string) => this.inner.getOutcome(id);
-  getOutcomeByKey = (k: string) => this.inner.getOutcomeByKey(k);
-  listOutcomes = (id: string) => this.inner.listOutcomes(id);
-  updateHeartbeat = (id: string) => this.inner.updateHeartbeat(id);
-  findStaleRuns = (t: number) => this.inner.findStaleRuns(t);
-  claimRunForRecovery = (id: string) => this.inner.claimRunForRecovery(id);
-  deleteRunsOlderThan = (m: number) => this.inner.deleteRunsOlderThan(m);
+  createRun = (...a: Parameters<JournalStore['createRun']>) => this.inner.createRun(...a);
+  getRun = (...a: Parameters<JournalStore['getRun']>) => this.inner.getRun(...a);
+  updateRun = (...a: Parameters<JournalStore['updateRun']>) => this.inner.updateRun(...a);
+  listRuns = (...a: Parameters<JournalStore['listRuns']>) => this.inner.listRuns(...a);
+  deleteRun = (...a: Parameters<JournalStore['deleteRun']>) => this.inner.deleteRun(...a);
+  createStep = (...a: Parameters<JournalStore['createStep']>) => this.inner.createStep(...a);
+  getStep = (...a: Parameters<JournalStore['getStep']>) => this.inner.getStep(...a);
+  updateStep = (...a: Parameters<JournalStore['updateStep']>) => this.inner.updateStep(...a);
+  listSteps = (...a: Parameters<JournalStore['listSteps']>) => this.inner.listSteps(...a);
+  getOutcome = (...a: Parameters<JournalStore['getOutcome']>) => this.inner.getOutcome(...a);
+  getOutcomeByKey = (...a: Parameters<JournalStore['getOutcomeByKey']>) =>
+    this.inner.getOutcomeByKey(...a);
+  listOutcomes = (...a: Parameters<JournalStore['listOutcomes']>) =>
+    this.inner.listOutcomes(...a);
+  updateHeartbeat = (...a: Parameters<JournalStore['updateHeartbeat']>) =>
+    this.inner.updateHeartbeat(...a);
+  findStaleRuns = (...a: Parameters<JournalStore['findStaleRuns']>) =>
+    this.inner.findStaleRuns(...a);
+  claimRunForRecovery = (...a: Parameters<JournalStore['claimRunForRecovery']>) =>
+    this.inner.claimRunForRecovery(...a);
+  deleteRunsOlderThan = (...a: Parameters<JournalStore['deleteRunsOlderThan']>) =>
+    this.inner.deleteRunsOlderThan(...a);
 
-  recordOutcome(outcome: OutcomeRecord): Promise<OutcomeRecord> {
+  recordOutcome(
+    outcome: OutcomeRecord,
+    expectedGeneration: number,
+  ): Promise<OutcomeRecord> {
     const cost = this.costByKey.get(outcome.operationKey) ?? 0;
-    return this.inner.recordOutcome({
-      ...outcome,
-      tokens: { ...outcome.tokens, costUsd: cost },
-    });
+    return this.inner.recordOutcome(
+      {
+        ...outcome,
+        tokens: { ...outcome.tokens, costUsd: cost },
+      },
+      expectedGeneration,
+    );
   }
 }
 
@@ -105,7 +115,7 @@ describe('parallel group cost accounting', () => {
           const store = new SqliteJournalStore(':memory:');
           try {
             const run = await store.createRun({ name: 'replay-mask' });
-            await store.updateRun(run.runId, { status: 'running' });
+            await store.updateRun(run.runId, { status: 'running' }, 0);
 
             const names = replayedMask.map((_, i) => `b-${i}`);
             const replayCursor = new Map<string, OutcomeRecord>();
@@ -133,6 +143,7 @@ describe('parallel group cost accounting', () => {
               replayCursor,
               eventBus: new EventBus(),
               signal: new AbortController().signal,
+              generation: 0,
             });
 
             await ctx.parallel(
@@ -167,7 +178,7 @@ describe('parallel operation key reconstruction', () => {
             // Ensure unique branch names so keys are distinguishable.
             const names = rawNames.map((n, i) => `${n}-${i}`);
             const run = await store.createRun({ name: 'key-reconstruction' });
-            await store.updateRun(run.runId, { status: 'running' });
+            await store.updateRun(run.runId, { status: 'running' }, 0);
 
             const ctx = new DurableContextImpl({
               run,
@@ -176,6 +187,7 @@ describe('parallel operation key reconstruction', () => {
               replayCursor: new Map(),
               eventBus: new EventBus(),
               signal: new AbortController().signal,
+              generation: 0,
             });
 
             const seqBase = ctx.currentSequence;

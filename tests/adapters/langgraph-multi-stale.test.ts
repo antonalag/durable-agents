@@ -29,7 +29,7 @@ describe('LangGraph adapter recovers every matching stale run', () => {
 
   async function makeStale(name: string): Promise<string> {
     const run = await store.createRun({ ...config, name });
-    await store.updateRun(run.runId, { status: 'running' });
+    await store.updateRun(run.runId, { status: 'running' }, 0);
     const oldTime = new Date(Date.now() - 60_000).toISOString();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (store as any).db

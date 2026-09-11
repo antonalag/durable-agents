@@ -80,7 +80,7 @@ describe('createDurableMiddleware', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       await mw.afterModel!({
         runId: run.runId,
@@ -124,7 +124,7 @@ describe('createDurableMiddleware', () => {
       // Create a "stale" run: running status with old heartbeat
       const staleConfig: RunConfig = { ...config, name: 'test-wf' };
       const staleRun = await store.createRun(staleConfig);
-      await store.updateRun(staleRun.runId, { status: 'running' });
+      await store.updateRun(staleRun.runId, { status: 'running' }, 0);
 
       // Manually backdate the heartbeat so findStaleRuns picks it up
       const oldTime = new Date(Date.now() - 60_000).toISOString();
@@ -144,7 +144,7 @@ describe('createDurableMiddleware', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       const operationKey = computeOperationKey(staleRun.runId, 'llm-call', 0);
       await store.recordOutcome({
@@ -156,7 +156,7 @@ describe('createDurableMiddleware', () => {
         tokens: { inputTokens: 42, outputTokens: 17, costUsd: 0 },
         durationMs: 100,
         recordedAt: new Date(),
-      });
+      }, 0);
 
       // Now create middleware — it should detect stale run during beforeAgent
       const recoveryEventBus = new EventBus();
@@ -191,7 +191,7 @@ describe('createDurableMiddleware', () => {
 
       // Step 1: Create a stale run with running status
       const staleRun = await store.createRun({ ...config, name: 'test-wf' });
-      await store.updateRun(staleRun.runId, { status: 'running' });
+      await store.updateRun(staleRun.runId, { status: 'running' }, 0);
 
       const oldTime = new Date(Date.now() - 60_000).toISOString();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -210,7 +210,7 @@ describe('createDurableMiddleware', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       const staleOperationKey = computeOperationKey(staleRun.runId, 'llm-call', 0);
       await store.recordOutcome({
@@ -222,7 +222,7 @@ describe('createDurableMiddleware', () => {
         tokens: { inputTokens: 42, outputTokens: 17, costUsd: 0 },
         durationMs: 100,
         recordedAt: new Date(),
-      });
+      }, 0);
 
       // Step 3: Create middleware and start — enters replay mode
       const recoveryEventBus = new EventBus();
@@ -253,7 +253,7 @@ describe('createDurableMiddleware', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(replayStep);
+      await store.createStep(replayStep, 0);
 
       await mw.afterModel!({
         runId: newRun.runId,
@@ -279,7 +279,7 @@ describe('createDurableMiddleware', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(freshStep);
+      await store.createStep(freshStep, 0);
 
       await mw.afterModel!({
         runId: newRun.runId,
@@ -296,7 +296,7 @@ describe('createDurableMiddleware', () => {
     it('handles corrupted outcome data gracefully (starts fresh)', async () => {
       // Create a stale run with a step that has a corrupted outcome (null operationKey)
       const staleRun = await store.createRun({ ...config, name: 'test-wf' });
-      await store.updateRun(staleRun.runId, { status: 'running' });
+      await store.updateRun(staleRun.runId, { status: 'running' }, 0);
 
       const oldTime = new Date(Date.now() - 60_000).toISOString();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -315,7 +315,7 @@ describe('createDurableMiddleware', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       // Insert an outcome with empty operationKey directly to simulate corruption
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

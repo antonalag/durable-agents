@@ -16,7 +16,7 @@ describe('Property 4: Idempotent executes fn at most once per key', () => {
           const eventBus = new EventBus();
 
           const run = await store.createRun({ name: 'idempotent-test' });
-          await store.updateRun(run.runId, { status: 'running' });
+          await store.updateRun(run.runId, { status: 'running' }, 0);
 
           const controller = new AbortController();
           const ctx = new DurableContextImpl({
@@ -26,6 +26,7 @@ describe('Property 4: Idempotent executes fn at most once per key', () => {
             replayCursor: new Map(),
             eventBus,
             signal: controller.signal,
+            generation: 0,
           });
 
           let callCount = 0;

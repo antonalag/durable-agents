@@ -55,7 +55,7 @@ describe('costFunction in adapters', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       // Spy on recordOutcome to capture the tokens passed in
       const recordSpy = vi.spyOn(store, 'recordOutcome');
@@ -103,7 +103,7 @@ describe('costFunction in adapters', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       await expect(
         mw.afterModel!({
@@ -143,7 +143,7 @@ describe('costFunction in adapters', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       await expect(
         mw.afterModel!({
@@ -180,7 +180,7 @@ describe('costFunction in adapters', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       await expect(
         mw.afterModel!({
@@ -217,7 +217,7 @@ describe('costFunction in adapters', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       await expect(
         mw.afterModel!({
@@ -251,7 +251,7 @@ describe('costFunction in adapters', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
 
       await mw.afterModel!({
         runId: run.runId,
@@ -276,7 +276,7 @@ describe('costFunction in adapters', () => {
         name: 'ai-sdk-cost-test',
         budget: { costFunction: costFn },
       });
-      await store.updateRun(run.runId, { status: 'running' });
+      await store.updateRun(run.runId, { status: 'running' }, 0);
 
       // The run returned by createRun still has costFunction in-memory,
       // but updateRun re-reads from DB (losing the function). Use the original
@@ -290,6 +290,7 @@ describe('costFunction in adapters', () => {
         replayCursor: new Map(),
         eventBus,
         signal: new AbortController().signal,
+        generation: 0,
       });
     });
 
@@ -325,7 +326,7 @@ describe('costFunction in adapters', () => {
           },
         },
       });
-      await store.updateRun(throwRun.runId, { status: 'running' });
+      await store.updateRun(throwRun.runId, { status: 'running' }, 0);
 
       const throwCtx = new DurableContextImpl({
         run: { ...throwRun, status: 'running' as const },
@@ -334,6 +335,7 @@ describe('costFunction in adapters', () => {
         replayCursor: new Map(),
         eventBus,
         signal: new AbortController().signal,
+        generation: 0,
       });
 
       const durableCtx: AiSdkDurableContext = { store, ctx: throwCtx, eventBus };
@@ -358,7 +360,7 @@ describe('costFunction in adapters', () => {
         name: 'ai-sdk-nan-test',
         budget: { costFunction: () => NaN },
       });
-      await store.updateRun(nanRun.runId, { status: 'running' });
+      await store.updateRun(nanRun.runId, { status: 'running' }, 0);
 
       const nanCtx = new DurableContextImpl({
         run: { ...nanRun, status: 'running' as const },
@@ -367,6 +369,7 @@ describe('costFunction in adapters', () => {
         replayCursor: new Map(),
         eventBus,
         signal: new AbortController().signal,
+        generation: 0,
       });
 
       const durableCtx: AiSdkDurableContext = { store, ctx: nanCtx, eventBus };
@@ -383,7 +386,7 @@ describe('costFunction in adapters', () => {
         name: 'ai-sdk-inf-test',
         budget: { costFunction: () => Infinity },
       });
-      await store.updateRun(infRun.runId, { status: 'running' });
+      await store.updateRun(infRun.runId, { status: 'running' }, 0);
 
       const infCtx = new DurableContextImpl({
         run: { ...infRun, status: 'running' as const },
@@ -392,6 +395,7 @@ describe('costFunction in adapters', () => {
         replayCursor: new Map(),
         eventBus,
         signal: new AbortController().signal,
+        generation: 0,
       });
 
       const durableCtx: AiSdkDurableContext = { store, ctx: infCtx, eventBus };
@@ -408,7 +412,7 @@ describe('costFunction in adapters', () => {
         name: 'ai-sdk-neg-test',
         budget: { costFunction: () => -1 },
       });
-      await store.updateRun(negRun.runId, { status: 'running' });
+      await store.updateRun(negRun.runId, { status: 'running' }, 0);
 
       const negCtx = new DurableContextImpl({
         run: { ...negRun, status: 'running' as const },
@@ -417,6 +421,7 @@ describe('costFunction in adapters', () => {
         replayCursor: new Map(),
         eventBus,
         signal: new AbortController().signal,
+        generation: 0,
       });
 
       const durableCtx: AiSdkDurableContext = { store, ctx: negCtx, eventBus };
@@ -430,7 +435,7 @@ describe('costFunction in adapters', () => {
 
     it('no costFunction configured → costUsd remains 0', async () => {
       const noCostRun = await store.createRun({ name: 'ai-sdk-no-cost' });
-      await store.updateRun(noCostRun.runId, { status: 'running' });
+      await store.updateRun(noCostRun.runId, { status: 'running' }, 0);
 
       const noCostCtx = new DurableContextImpl({
         run: { ...noCostRun, status: 'running' as const },
@@ -439,6 +444,7 @@ describe('costFunction in adapters', () => {
         replayCursor: new Map(),
         eventBus,
         signal: new AbortController().signal,
+        generation: 0,
       });
 
       const durableCtx: AiSdkDurableContext = { store, ctx: noCostCtx, eventBus };

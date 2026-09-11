@@ -15,10 +15,10 @@ describe('Property 5: Heartbeat fires at configured interval', () => {
             const duration = intervalMs * multiplier;
 
             const store = {
-              updateHeartbeat: vi.fn().mockResolvedValue(undefined),
+              updateHeartbeat: vi.fn().mockResolvedValue(true),
             } as unknown as JournalStore;
 
-            const heartbeat = new Heartbeat(store, 'run-test', intervalMs);
+            const heartbeat = new Heartbeat(store, 'run-test', intervalMs, 0);
             heartbeat.start();
 
             vi.advanceTimersByTime(duration);
@@ -42,14 +42,14 @@ describe('Property 5: Heartbeat fires at configured interval', () => {
         vi.useFakeTimers();
         try {
           const store = {
-            updateHeartbeat: vi.fn().mockResolvedValue(undefined),
+            updateHeartbeat: vi.fn().mockResolvedValue(true),
           } as unknown as JournalStore;
 
-          const heartbeat = new Heartbeat(store, 'run-test', intervalMs);
+          const heartbeat = new Heartbeat(store, 'run-test', intervalMs, 0);
           heartbeat.start();
 
           expect(store.updateHeartbeat).toHaveBeenCalledTimes(1);
-          expect(store.updateHeartbeat).toHaveBeenCalledWith('run-test');
+          expect(store.updateHeartbeat).toHaveBeenCalledWith('run-test', 0);
 
           heartbeat.stop();
         } finally {

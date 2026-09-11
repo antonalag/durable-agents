@@ -170,7 +170,7 @@ describe('maxCostUsd cost accounting', () => {
         Promise.resolve(existingOutcomes.filter((o) => o.stepId === stepId)),
       ),
       updateRun: vi.fn().mockResolvedValue({ ...fakeRun, status: 'completed' }),
-      updateHeartbeat: vi.fn().mockResolvedValue(undefined),
+      updateHeartbeat: vi.fn().mockResolvedValue(true),
       createStep: vi.fn().mockImplementation((step) => Promise.resolve({ ...step, completedAt: undefined })),
       updateStep: vi.fn().mockImplementation((stepId, updates) => Promise.resolve({ stepId, ...updates })),
       recordOutcome: vi.fn().mockImplementation((outcome) => Promise.resolve(outcome)),
@@ -193,7 +193,7 @@ describe('maxCostUsd cost accounting', () => {
       return 'done';
     };
 
-    await engine.recover(runId, workflowFn, 'input');
+    await engine.recover(runId, workflowFn, 'input', 0);
 
     // Replayed steps should NOT have triggered recordOutcome
     expect(store.recordOutcome).not.toHaveBeenCalled();
@@ -249,7 +249,7 @@ describe('maxCostUsd cost accounting', () => {
         Promise.resolve(existingOutcomes.filter((o) => o.stepId === stepId)),
       ),
       updateRun: vi.fn().mockResolvedValue({ ...fakeRun, status: 'completed' }),
-      updateHeartbeat: vi.fn().mockResolvedValue(undefined),
+      updateHeartbeat: vi.fn().mockResolvedValue(true),
       createStep: vi.fn().mockImplementation((step) => Promise.resolve({ ...step, completedAt: undefined })),
       updateStep: vi.fn().mockImplementation((stepId, updates) => Promise.resolve({ stepId, ...updates })),
       recordOutcome: vi.fn().mockImplementation((outcome) => Promise.resolve(outcome)),
@@ -271,7 +271,7 @@ describe('maxCostUsd cost accounting', () => {
       return 'done';
     };
 
-    await engine.recover(runId, workflowFn, 'input');
+    await engine.recover(runId, workflowFn, 'input', 0);
 
     // The updateRun call at end of recovery preserves the existing totals.cost
     const updateCall = store.updateRun.mock.calls[0];

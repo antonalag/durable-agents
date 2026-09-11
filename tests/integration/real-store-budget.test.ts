@@ -21,40 +21,52 @@ class CostInjectingStore implements JournalStore {
     private readonly costPerOutcome: number,
   ) {}
 
-  createRun = (config: Parameters<JournalStore['createRun']>[0]) =>
-    this.inner.createRun(config);
-  getRun = (runId: string) => this.inner.getRun(runId);
-  updateRun = (
-    runId: string,
-    updates: Parameters<JournalStore['updateRun']>[1],
-  ) => this.inner.updateRun(runId, updates);
-  listRuns = (filter?: Parameters<JournalStore['listRuns']>[0]) =>
-    this.inner.listRuns(filter);
-  deleteRun = (runId: string) => this.inner.deleteRun(runId);
-  createStep = (step: Parameters<JournalStore['createStep']>[0]) =>
-    this.inner.createStep(step);
-  getStep = (stepId: string) => this.inner.getStep(stepId);
-  updateStep = (
-    stepId: string,
-    updates: Parameters<JournalStore['updateStep']>[1],
-  ) => this.inner.updateStep(stepId, updates);
-  listSteps = (runId: string) => this.inner.listSteps(runId);
-  getOutcome = (outcomeId: string) => this.inner.getOutcome(outcomeId);
-  getOutcomeByKey = (operationKey: string) =>
-    this.inner.getOutcomeByKey(operationKey);
-  listOutcomes = (stepId: string) => this.inner.listOutcomes(stepId);
-  updateHeartbeat = (runId: string) => this.inner.updateHeartbeat(runId);
-  findStaleRuns = (timeoutMs: number) => this.inner.findStaleRuns(timeoutMs);
-  claimRunForRecovery = (runId: string) =>
-    this.inner.claimRunForRecovery(runId);
-  deleteRunsOlderThan = (maxAgeMs: number) =>
-    this.inner.deleteRunsOlderThan(maxAgeMs);
+  createRun = (...args: Parameters<JournalStore['createRun']>) =>
+    this.inner.createRun(...args);
+  getRun = (...args: Parameters<JournalStore['getRun']>) =>
+    this.inner.getRun(...args);
+  updateRun = (...args: Parameters<JournalStore['updateRun']>) =>
+    this.inner.updateRun(...args);
+  listRuns = (...args: Parameters<JournalStore['listRuns']>) =>
+    this.inner.listRuns(...args);
+  deleteRun = (...args: Parameters<JournalStore['deleteRun']>) =>
+    this.inner.deleteRun(...args);
+  createStep = (...args: Parameters<JournalStore['createStep']>) =>
+    this.inner.createStep(...args);
+  getStep = (...args: Parameters<JournalStore['getStep']>) =>
+    this.inner.getStep(...args);
+  updateStep = (...args: Parameters<JournalStore['updateStep']>) =>
+    this.inner.updateStep(...args);
+  listSteps = (...args: Parameters<JournalStore['listSteps']>) =>
+    this.inner.listSteps(...args);
+  getOutcome = (...args: Parameters<JournalStore['getOutcome']>) =>
+    this.inner.getOutcome(...args);
+  getOutcomeByKey = (...args: Parameters<JournalStore['getOutcomeByKey']>) =>
+    this.inner.getOutcomeByKey(...args);
+  listOutcomes = (...args: Parameters<JournalStore['listOutcomes']>) =>
+    this.inner.listOutcomes(...args);
+  updateHeartbeat = (...args: Parameters<JournalStore['updateHeartbeat']>) =>
+    this.inner.updateHeartbeat(...args);
+  findStaleRuns = (...args: Parameters<JournalStore['findStaleRuns']>) =>
+    this.inner.findStaleRuns(...args);
+  claimRunForRecovery = (
+    ...args: Parameters<JournalStore['claimRunForRecovery']>
+  ) => this.inner.claimRunForRecovery(...args);
+  deleteRunsOlderThan = (
+    ...args: Parameters<JournalStore['deleteRunsOlderThan']>
+  ) => this.inner.deleteRunsOlderThan(...args);
 
-  recordOutcome(outcome: OutcomeRecord): Promise<OutcomeRecord> {
-    return this.inner.recordOutcome({
-      ...outcome,
-      tokens: { ...outcome.tokens, costUsd: this.costPerOutcome },
-    });
+  recordOutcome(
+    outcome: OutcomeRecord,
+    expectedGeneration: number,
+  ): Promise<OutcomeRecord> {
+    return this.inner.recordOutcome(
+      {
+        ...outcome,
+        tokens: { ...outcome.tokens, costUsd: this.costPerOutcome },
+      },
+      expectedGeneration,
+    );
   }
 }
 
@@ -74,7 +86,7 @@ describe('Real-store budget integration', () => {
         startedAt: new Date(),
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
-      });
+      }, 0);
 
       const operationKey = computeOperationKey(run.runId, 'llm-step', 0);
       const expectedCost = costFn({ inputTokens: 100, outputTokens: 20 });
@@ -87,7 +99,7 @@ describe('Real-store budget integration', () => {
         tokens: { inputTokens: 100, outputTokens: 20, costUsd: expectedCost },
         durationMs: 5,
         recordedAt: new Date(),
-      });
+      }, 0);
 
       const read = await store.getOutcomeByKey(operationKey);
       expect(read).not.toBeNull();

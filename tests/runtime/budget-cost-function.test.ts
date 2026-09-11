@@ -192,7 +192,7 @@ describe('Budget enforcement with costFunction', () => {
           staleTimeoutMs: 30_000,
           budget: { maxCostUsd: 1.0, costFunction: (t) => t.inputTokens * 0.001 },
         });
-        await store.updateRun(run.runId, { status: 'running' });
+        await store.updateRun(run.runId, { status: 'running' }, 0);
 
         // Pre-persist 2 completed steps with outcomes
         for (let i = 0; i < 2; i++) {
@@ -206,7 +206,7 @@ describe('Budget enforcement with costFunction', () => {
             startedAt: new Date(),
             cost: { inputTokens: 100, outputTokens: 50, costUsd: 0 },
             attempt: 1,
-          });
+          }, 0);
           await store.recordOutcome({
             outcomeId: randomUUID(),
             stepId,
@@ -216,7 +216,7 @@ describe('Budget enforcement with costFunction', () => {
             tokens: { inputTokens: 100, outputTokens: 50, costUsd: 0 },
             durationMs: 10,
             recordedAt: new Date(),
-          });
+          }, 0);
         }
 
         const engine = new RecoveryEngine(store, eventBus, 30_000);
@@ -234,6 +234,7 @@ describe('Budget enforcement with costFunction', () => {
             return 'done';
           },
           undefined,
+          run.recoveryGeneration,
         );
 
         expect(freshStepExecuted).toBe(true);
@@ -271,7 +272,7 @@ describe('Budget enforcement with costFunction', () => {
           staleTimeoutMs: 30_000,
           budget: { maxCostUsd: 1.0 },
         });
-        await store.updateRun(run.runId, { status: 'running' });
+        await store.updateRun(run.runId, { status: 'running' }, 0);
 
         // Pre-persist 3 outcomes
         for (let i = 0; i < 3; i++) {
@@ -285,7 +286,7 @@ describe('Budget enforcement with costFunction', () => {
             startedAt: new Date(),
             cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
             attempt: 1,
-          });
+          }, 0);
           await store.recordOutcome({
             outcomeId: randomUUID(),
             stepId,
@@ -295,7 +296,7 @@ describe('Budget enforcement with costFunction', () => {
             tokens: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
             durationMs: 10,
             recordedAt: new Date(),
-          });
+          }, 0);
         }
 
         const recordOutcomeSpy = vi.spyOn(store, 'recordOutcome');
@@ -311,6 +312,7 @@ describe('Budget enforcement with costFunction', () => {
             return 'done';
           },
           undefined,
+          run.recoveryGeneration,
         );
 
         // Replayed steps should NOT create new outcomes (they return cached results)

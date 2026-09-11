@@ -47,7 +47,7 @@ describe('Cross-adapter integration', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
       await mw1.afterModel!({
         runId: run1.runId,
         step,
@@ -85,7 +85,7 @@ describe('Cross-adapter integration', () => {
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
       };
-      await store.createStep(step);
+      await store.createStep(step, 0);
       await mw2.afterModel!({
         runId: run2.runId,
         step,
@@ -119,7 +119,7 @@ describe('Cross-adapter integration', () => {
       cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
       attempt: 1,
     };
-    await store.createStep(freshStep);
+    await store.createStep(freshStep, 0);
     await mw2.afterModel!({
       runId: run2.runId,
       step: freshStep,
@@ -140,7 +140,7 @@ describe('Cross-adapter integration', () => {
     store = new SqliteJournalStore(':memory:');
     const eventBus = new EventBus();
     const run = await store.createRun({ name: 'ai-sdk-recovery' });
-    await store.updateRun(run.runId, { status: 'running' });
+    await store.updateRun(run.runId, { status: 'running' }, 0);
 
     const ctx = new DurableContextImpl({
       run,
@@ -149,6 +149,7 @@ describe('Cross-adapter integration', () => {
       replayCursor: new Map(),
       eventBus,
       signal: new AbortController().signal,
+      generation: 0,
     });
 
     // First call: records outcome
@@ -176,7 +177,7 @@ describe('Cross-adapter integration', () => {
 
     // Context 1: simulate AI SDK context
     const run1 = await store.createRun({ name: 'ctx-1' });
-    await store.updateRun(run1.runId, { status: 'running' });
+    await store.updateRun(run1.runId, { status: 'running' }, 0);
     const ctx1 = new DurableContextImpl({
       run: run1,
       store,
@@ -184,11 +185,12 @@ describe('Cross-adapter integration', () => {
       replayCursor: new Map(),
       eventBus,
       signal: new AbortController().signal,
+      generation: 0,
     });
 
     // Context 2: simulate LangGraph context (different run, same store)
     const run2 = await store.createRun({ name: 'ctx-2' });
-    await store.updateRun(run2.runId, { status: 'running' });
+    await store.updateRun(run2.runId, { status: 'running' }, 0);
     const ctx2 = new DurableContextImpl({
       run: run2,
       store,
@@ -196,6 +198,7 @@ describe('Cross-adapter integration', () => {
       replayCursor: new Map(),
       eventBus,
       signal: new AbortController().signal,
+      generation: 0,
     });
 
     // Same tool call in both contexts

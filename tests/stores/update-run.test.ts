@@ -8,7 +8,7 @@ describe('updateRun single-statement behavior', () => {
       const run = await store.createRun({ name: 'single-field' });
       const before = await store.getRun(run.runId);
 
-      await store.updateRun(run.runId, { status: 'running' });
+      await store.updateRun(run.runId, { status: 'running' }, 0);
 
       const after = await store.getRun(run.runId);
       expect(after!.status).toBe('running');
@@ -27,7 +27,7 @@ describe('updateRun single-statement behavior', () => {
       await store.updateRun(run.runId, {
         status: 'completed',
         totals: { cost: 1.25, tokens: 4200, steps: 7, recoveryCount: 1 },
-      });
+      }, 0);
 
       const after = await store.getRun(run.runId);
       expect(after!.status).toBe('completed');
@@ -49,9 +49,9 @@ describe('updateRun single-statement behavior', () => {
       await store.updateRun(run.runId, {
         status: 'running',
         totals: { cost: 0.5, tokens: 100, steps: 2, recoveryCount: 0 },
-      });
+      }, 0);
 
-      await store.updateRun(run.runId, { metadata: { note: 'updated' } });
+      await store.updateRun(run.runId, { metadata: { note: 'updated' } }, 0);
 
       const after = await store.getRun(run.runId);
       expect(after!.metadata).toEqual({ note: 'updated' });
@@ -70,7 +70,7 @@ describe('updateRun single-statement behavior', () => {
       const before = await store.getRun(run.runId);
 
       await new Promise((r) => setTimeout(r, 5));
-      await store.updateRun(run.runId, { status: 'running' });
+      await store.updateRun(run.runId, { status: 'running' }, 0);
 
       const after = await store.getRun(run.runId);
       expect(after!.updatedAt.getTime()).toBeGreaterThanOrEqual(

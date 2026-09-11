@@ -15,7 +15,7 @@ describe('idempotent decorator', () => {
     store = new SqliteJournalStore(':memory:');
     eventBus = new EventBus();
     run = await store.createRun({ name: 'test' });
-    run = await store.updateRun(run.runId, { status: 'running' });
+    run = await store.updateRun(run.runId, { status: 'running' }, 0);
 
     ctx = new DurableContextImpl({
       run,
@@ -24,6 +24,7 @@ describe('idempotent decorator', () => {
       replayCursor: new Map(),
       eventBus,
       signal: new AbortController().signal,
+      generation: 0,
     });
   });
 

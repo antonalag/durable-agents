@@ -82,6 +82,7 @@ describe('Side-effect window: re-execution on recovery', () => {
         return r;
       },
       'input',
+      0,
     );
 
     // fn() was called TWICE total — once in the original run, once in recovery.

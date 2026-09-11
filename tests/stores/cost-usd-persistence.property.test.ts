@@ -24,7 +24,7 @@ async function seedOutcome(
     startedAt: new Date(),
     cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
     attempt: 1,
-  });
+  }, 0);
   const operationKey = computeOperationKey(runId, nodeName, index);
   await store.recordOutcome({
     outcomeId: randomUUID(),
@@ -35,7 +35,7 @@ async function seedOutcome(
     tokens: { inputTokens: 1, outputTokens: 2, costUsd },
     durationMs: 10,
     recordedAt: new Date(),
-  });
+  }, 0);
   return operationKey;
 }
 
@@ -75,7 +75,7 @@ describe('recovery cost accumulator initialization', () => {
           const store = new SqliteJournalStore(':memory:');
           try {
             const run = await store.createRun({ name: 'recovery-accumulator' });
-            await store.updateRun(run.runId, { status: 'running' });
+            await store.updateRun(run.runId, { status: 'running' }, 0);
 
             for (let i = 0; i < costs.length; i++) {
               await seedOutcome(store, run.runId, i, costs[i]);
@@ -93,6 +93,7 @@ describe('recovery cost accumulator initialization', () => {
                 return 'done';
               },
               undefined,
+              0,
             );
 
             const recovered = await store.getRun(run.runId);

@@ -64,7 +64,7 @@ function createRecoveryMockStore(opts: {
       Promise.resolve(outcomesByStep.get(stepId) ?? []),
     ),
     updateRun: vi.fn().mockResolvedValue({ ...run, status: 'completed' }),
-    updateHeartbeat: vi.fn().mockResolvedValue(undefined),
+    updateHeartbeat: vi.fn().mockResolvedValue(true),
     createStep: vi.fn().mockImplementation((step) => Promise.resolve({ ...step, completedAt: undefined })),
     updateStep: vi.fn().mockImplementation((stepId, updates) => Promise.resolve({ stepId, ...updates })),
     recordOutcome: vi.fn().mockImplementation((outcome) => Promise.resolve(outcome)),
@@ -145,7 +145,7 @@ describe('RecoveryEngine', () => {
         return 'done';
       };
 
-      const result = await engine.recover(runId, workflowFn, 'test-input');
+      const result = await engine.recover(runId, workflowFn, 'test-input', 0);
 
       expect(result).toBe('done');
       expect(events).toHaveLength(1);
@@ -166,12 +166,12 @@ describe('RecoveryEngine', () => {
         return 'ok';
       };
 
-      await engine.recover(runId, workflowFn, 'input');
+      await engine.recover(runId, workflowFn, 'input', 0);
 
       expect(store.updateRun).toHaveBeenCalledWith(runId, expect.objectContaining({
         status: 'completed',
         totals: expect.objectContaining({ recoveryCount: 3 }),
-      }));
+      }), 0);
     });
 
     it('marks run as failed and emits run:failed when workflow throws', async () => {
@@ -187,9 +187,9 @@ describe('RecoveryEngine', () => {
         throw new Error('recovery exploded');
       };
 
-      await expect(engine.recover(runId, workflowFn, 'input')).rejects.toThrow('recovery exploded');
+      await expect(engine.recover(runId, workflowFn, 'input', 0)).rejects.toThrow('recovery exploded');
 
-      expect(store.updateRun).toHaveBeenCalledWith(runId, { status: 'failed' });
+      expect(store.updateRun).toHaveBeenCalledWith(runId, { status: 'failed' }, 0);
       expect(failedEvents).toHaveLength(1);
       expect(failedEvents[0].type).toBe('run:failed');
       expect(failedEvents[0].runId).toBe(runId);
