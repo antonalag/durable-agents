@@ -49,7 +49,7 @@ describe('Run lifecycle transitions', () => {
       staleTimeoutMs: 30_000,
     });
 
-    await store.updateRun(run.runId, { status: 'running' });
+    await store.updateRun(run.runId, { status: 'running' }, 0);
 
     // Backdate heartbeat to 60s ago via raw DB access
     const pastDate = new Date(Date.now() - 60_000).toISOString();

@@ -22,6 +22,7 @@ const runArb: fc.Arbitrary<ExecutionRun> = fc.record({
   createdAt: fc.date({ noInvalidDate: true }),
   updatedAt: fc.date({ noInvalidDate: true }),
   lastHeartbeat: fc.date({ noInvalidDate: true }),
+  recoveryGeneration: fc.nat({ max: 10 }),
 });
 
 describe('Property 1: Runs list rendering completeness', () => {

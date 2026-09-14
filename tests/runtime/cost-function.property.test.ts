@@ -51,7 +51,7 @@ describe('Property 4: Adapter cost function application', () => {
               cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
               attempt: 1,
             };
-            await store.createStep(step);
+            await store.createStep(step, 0);
 
             await mw.afterModel!({
               runId: run.runId,
@@ -85,7 +85,7 @@ describe('Property 5: Running cost accumulator invariant', () => {
           const store = new SqliteJournalStore(':memory:');
           try {
             const run = await store.createRun({ name: 'accum-prop-test' });
-            await store.updateRun(run.runId, { status: 'running' });
+            await store.updateRun(run.runId, { status: 'running' }, 0);
 
             const stepIds: string[] = [];
             for (let i = 0; i < costValues.length; i++) {
@@ -100,7 +100,7 @@ describe('Property 5: Running cost accumulator invariant', () => {
                 startedAt: new Date(),
                 cost: { inputTokens: 0, outputTokens: 0, costUsd: costValues[i] },
                 attempt: 1,
-              });
+              }, 0);
               await store.recordOutcome({
                 outcomeId: randomUUID(),
                 stepId,
@@ -110,7 +110,7 @@ describe('Property 5: Running cost accumulator invariant', () => {
                 tokens: { inputTokens: 100, outputTokens: 50, costUsd: costValues[i] },
                 durationMs: 10,
                 recordedAt: new Date(),
-              });
+              }, 0);
             }
 
             // The SQLite outcomes table doesn't persist costUsd — spy on listOutcomes
@@ -141,6 +141,7 @@ describe('Property 5: Running cost accumulator invariant', () => {
                 return 'done';
               },
               undefined,
+              0,
             );
 
             const updatedRun = await store.getRun(run.runId);

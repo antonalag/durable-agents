@@ -28,7 +28,7 @@ describe('Property 4: Recovery replays without re-execution', () => {
         async (stepNames) => {
           const store = new SqliteJournalStore(':memory:');
           const run = await store.createRun({ name: 'recovery-test' });
-          await store.updateRun(run.runId, { status: 'running' });
+          await store.updateRun(run.runId, { status: 'running' }, 0);
 
           const eventBus = new EventBus();
           const ctx = new DurableContextImpl({
@@ -38,6 +38,7 @@ describe('Property 4: Recovery replays without re-execution', () => {
             replayCursor: new Map(),
             eventBus,
             signal: new AbortController().signal,
+            generation: 0,
           });
 
           // Pre-record outcomes for all steps using the same key formula as withDurability
@@ -54,7 +55,7 @@ describe('Property 4: Recovery replays without re-execution', () => {
               startedAt: new Date(),
               cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
               attempt: 1,
-            });
+            }, 0);
 
             await store.recordOutcome({
               outcomeId: randomUUID(),
@@ -65,7 +66,7 @@ describe('Property 4: Recovery replays without re-execution', () => {
               tokens: { inputTokens: 10, outputTokens: 5, costUsd: 0 },
               durationMs: 50,
               recordedAt: new Date(),
-            });
+            }, 0);
           }
 
           // Call withDurability for each step — should return cached result, never call fn

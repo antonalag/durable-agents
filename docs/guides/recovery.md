@@ -20,7 +20,7 @@ const workflow = new DurableWorkflow('my-agent', agentFn, {
 });
 ```
 
-The `Heartbeat` class calls `store.updateHeartbeat(runId)` on a fixed interval. When the process crashes, the heartbeat stops. The run's last heartbeat timestamp freezes in the database.
+The `Heartbeat` class calls `store.updateHeartbeat(runId, generation)` on a fixed interval, where `generation` is the fencing token the worker holds. When the process crashes, the heartbeat stops. The run's last heartbeat timestamp freezes in the database. (If the write is rejected because the generation advanced, the heartbeat also stops and emits `heartbeat:fenced` — see [Concurrency Model](../concepts.md#concurrency-model).)
 
 ### When Is a Run "Stale"?
 
@@ -189,7 +189,7 @@ workflow.on('run:failed', (event) => {
 
 ## Manual Recovery via CLI
 
-For manual intervention (e.g., inspecting stale runs before recovering them), use the CLI:
+For manual intervention, use the CLI to **detect** stale runs. The `recover` command reports stale runs but does not re-execute them — actual recovery happens in a workflow process running with `autoRecover` enabled.
 
 ```bash
 npx durable-agents recover --db ./agent.db --timeout 30000
@@ -206,24 +206,25 @@ npx durable-agents recover --db ./agent.db --timeout 30000
 ### Examples
 
 ```bash
-# Recover stale runs from a SQLite database
+# Detect stale runs in a SQLite database
 npx durable-agents recover --db ./my-agent.db
 
-# Recover with a custom timeout (2 minutes)
+# Detect with a custom timeout (2 minutes)
 npx durable-agents recover --db ./my-agent.db --timeout 120000
 
-# Recover from a PostgreSQL database
+# Detect from a PostgreSQL database
 npx durable-agents recover --postgres postgresql://localhost:5432/agents
 ```
 
 ### Output
 
 ```
-Found 2 stale run(s). Recovering...
+Detected 2 stale run(s):
   Stale run: a1b2c3d4 (research-agent)
   Stale run: e5f6g7h8 (summarize-agent)
 
-Recovery summary: 2 found, 0 failed.
+Summary: 2 stale run(s) detected.
+Note: Run your workflow process with autoRecover enabled to perform actual recovery.
 ```
 
 ---
@@ -243,10 +244,10 @@ The replay cursor handles parallel steps individually — each has its own opera
 
 ### Recovery of Terminated Runs
 
-Runs that were explicitly terminated (via `workflow.terminate()` or lifecycle controls like budget/loop detection) are **not** recovered. Only runs in `running` status with a stale heartbeat are candidates.
+Runs that were explicitly terminated (via `workflow.terminate()` or lifecycle controls like budget/loop detection) are **not** recovered. Only non-terminal runs with a stale heartbeat are candidates.
 
 The `findStaleRuns()` query filters by:
-- Status is `running` (not `completed`, `failed`, or `terminated`)
+- Status is `running` or `recovering` (not `completed`, `failed`, `stale`, or `terminated`) — a crashed recovery is itself `recovering`, so it stays re-claimable once its heartbeat expires
 - Last heartbeat exceeds the stale timeout
 
 ### What Happens When Recovery Itself Fails
@@ -262,7 +263,11 @@ When using `autoRecover`, recovery failures are isolated per-run. The engine cat
 
 ### Duplicate Recovery Prevention
 
-The heartbeat restarts during recovery. If two processes attempt to recover the same run concurrently, the second process will see the run's heartbeat has been refreshed and will no longer consider it stale. This provides natural deduplication without distributed locks.
+The heartbeat restarts during recovery, so a live recovery keeps its run fresh and other workers stop treating it as stale. That alone is a timing-based deterrent, not a guarantee — two workers can still claim the same stale run before either refreshes the heartbeat.
+
+The actual guarantee is **generation fencing**. `claimRunForRecovery` advances a monotonic `recovery_generation` token and returns it in the `RecoveryClaim`. Every ownership-sensitive write (`updateHeartbeat`, `createStep`, `recordOutcome`, `updateStep`, `updateRun`, and `terminate()`) must carry the held generation and is applied only while it still matches the persisted value. When two workers race, each claim gets a distinct, strictly increasing generation; only the highest-generation holder can write, and the superseded worker's writes are rejected with `DurableError('FENCED')`. The fenced worker stops its heartbeat, aborts in-flight work, and writes no terminal state (it does not emit `run:failed`) — it yields the run to the winner.
+
+This is single-database fencing for the documented single-store deployment model, **not** distributed leader election. The LangGraph adapter recovery path is deliberately outside the fence: it uses a create-new-run model (marks matching stale runs failed, starts a fresh run) rather than reclaiming a generation.
 
 ### Non-Deterministic Workflow Changes
 

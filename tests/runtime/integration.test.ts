@@ -64,14 +64,14 @@ describe('Integration: end-to-end runtime scenarios', () => {
     expect(allRuns.length).toBe(1);
 
     // Manually mark as running to simulate stale state
-    await store.updateRun(allRuns[0].runId, { status: 'running' });
+    await store.updateRun(allRuns[0].runId, { status: 'running' }, 0);
 
     // Recover the stale run
     const eventBus = new EventBus();
     const engine = new RecoveryEngine(store, eventBus, 30_000);
     callCount = 0; // reset counter
 
-    await engine.recover(allRuns[0].runId, workflowFn, null);
+    await engine.recover(allRuns[0].runId, workflowFn, null, 0);
 
     // step-0 should replay from journal (no fn call), step-1 should execute fresh
     expect(callCount).toBe(1);
@@ -139,7 +139,7 @@ describe('Integration: end-to-end runtime scenarios', () => {
     });
 
     // Mark the run as 'running' so findStaleRuns can pick it up
-    await store.updateRun(staleRun.runId, { status: 'running' });
+    await store.updateRun(staleRun.runId, { status: 'running' }, 0);
 
     // Wait a bit so the heartbeat ages past our short staleTimeoutMs
     await new Promise((resolve) => setTimeout(resolve, 20));

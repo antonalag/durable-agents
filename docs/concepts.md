@@ -301,29 +301,27 @@ The library handles the common case (process stays alive, outcome gets persisted
 
 ## Concurrency Model
 
-v0.1.0 is designed for **single-worker recovery only**. One process recovers one stale run at a time. There is no distributed coordination, locking, or fencing built into the runtime.
+Concurrent recovery of the same run is made safe by **single-database generation fencing**. When a stale run is claimed for recovery, its `recovery_generation` token advances by one and the claimant receives that generation. Every ownership-sensitive write (`updateHeartbeat`, `createStep`, `recordOutcome`, `updateStep`, `updateRun`, including `terminate()`) must carry the held generation and is applied only while it still matches the persisted value.
+
+This is single-database fencing for the documented single-store deployment model — it is **not** distributed leader election or cross-store coordination.
 
 ### What Happens With Multiple Workers
 
-If two workers detect the same stale run and both attempt recovery concurrently, they will both replay cached outcomes (harmless) and then both execute fresh steps (harmful). This produces **duplicate step executions with no fencing** — two charges, two emails, two LLM calls.
+If two workers detect the same stale run and both claim it, each claim gets a distinct, strictly increasing generation, and the persisted generation ends at the maximum granted. Only the worker holding that maximum generation (the Fencing_Winner) can write; the superseded worker is fenced:
 
-The runtime does not detect or prevent this. There is no leader election, no advisory lock, no compare-and-swap on run ownership.
+- Its ownership-sensitive writes are rejected with `DurableError('FENCED')` — no duplicate step rows, outcomes, or terminal state.
+- Its heartbeat stops beating and emits `heartbeat:fenced`, so it no longer masks its own staleness.
+- It aborts its in-flight execution and yields the run to the winner. It does **not** write a terminal state and does **not** emit `run:failed`.
+
+Replayed cached outcomes remain harmless, and fresh steps from the loser are blocked by the generation gate, so concurrent recovery does not produce duplicate charges, emails, or LLM calls at the journal level.
+
+### Scope and Boundaries
+
+- **Single database.** The fence serializes claims and writes against one store (PostgreSQL row-level locking; SQLite single-process synchronicity). It is not a substitute for distributed leader election across independent databases.
+- **Side-effect window.** A crash between `fn()` returning and `recordOutcome()` persisting can still re-execute an external side effect on recovery. Pair non-idempotent side effects with external idempotency keys.
+- **LangGraph adapter.** The LangGraph adapter recovery path is deliberately outside the fence: it uses a create-new-run model (marks matching stale runs failed, starts a fresh run) rather than reclaiming a generation.
 
 ### Safe Deployment Patterns
 
-For v0.1.0, use one of these approaches:
-
-- **Single recovery worker:** Deploy one instance responsible for detecting and recovering stale runs.
-- **External coordination:** Use your infrastructure's leader election (e.g., Kubernetes lease, Redis `SET NX`, database advisory lock) to ensure only one worker recovers a given run.
-- **Partition by run ID:** Route recovery responsibility to a deterministic worker based on run ID hash.
-
-### Future Work
-
-Planned improvements for multi-worker safety:
-
-- **Advisory locks** — acquire a database-level lock on the run before recovery begins.
-- **Leases** — time-bounded ownership claims with automatic expiry.
-- **Fencing tokens** — monotonically increasing tokens that invalidate stale writers.
-- **`SELECT FOR UPDATE`** — row-level locking during stale run detection queries.
-
-Until these are implemented, treat concurrent recovery of the same run as undefined behavior.
+- **Any number of recovery workers against one store:** generation fencing ensures only the latest claimant persists, so multiple workers can safely race to recover the same run.
+- **Partition by run ID (optional optimization):** route recovery to a deterministic worker based on run ID hash to reduce wasted, fenced work — not required for correctness.

@@ -85,7 +85,7 @@ The root page (`/`) displays all workflow runs in a table:
 |--------|-------------|
 | Run ID | Truncated identifier, links to run detail |
 | Workflow | The `name` from `RunConfig` |
-| Status | Badge showing `running`, `completed`, `failed`, or `stale` |
+| Status | Badge showing `pending`, `running`, `recovering`, `completed`, `failed`, `stale`, or `terminated` |
 | Cost | Total USD cost of the run |
 | Steps | Number of completed steps |
 | Created | Timestamp when the run started |
@@ -160,6 +160,7 @@ The SSE stream includes all EventBus event types:
 - `step:started`, `step:completed`
 - `budget:warning`, `budget:exceeded`
 - `loop:detected`
+- `heartbeat:failed`, `heartbeat:fenced`
 
 ### htmx Integration
 
@@ -195,14 +196,15 @@ npx durable-agents recover --db ./agent.db
 
 ### What It Reports
 
-The command detects runs whose heartbeat has exceeded the timeout and reports them:
+The command detects runs whose heartbeat has exceeded the timeout and reports them (it does not re-execute them — recovery happens in a workflow process with `autoRecover` enabled):
 
 ```
-Found 2 stale run(s). Recovering...
+Detected 2 stale run(s):
   Stale run: a1b2c3d4 (research-workflow)
   Stale run: e5f6g7h8 (summarize-workflow)
 
-Recovery summary: 2 found, 0 failed.
+Summary: 2 stale run(s) detected.
+Note: Run your workflow process with autoRecover enabled to perform actual recovery.
 ```
 
 If all runs are healthy:

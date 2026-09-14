@@ -85,6 +85,8 @@ export class DurableWorkflow<TInput, TOutput> {
   private loopConfig: LoopConfig | undefined;
   private activeRuns = new Map<string, AbortController>();
   private lifecycleStates = new Map<string, RunLifecycleState>();
+  /** Fencing generation each active run holds; the source of truth for terminate(). */
+  private runGenerations = new Map<string, number>();
 
   constructor(name: string, fn: WorkflowFn<TInput, TOutput>, opts: DurableWorkflowOptions) {
     const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? 10_000;
@@ -138,13 +140,16 @@ export class DurableWorkflow<TInput, TOutput> {
     };
 
     const run: ExecutionRun = await this.store.createRun(config);
-    await this.store.updateRun(run.runId, { status: 'running' });
+    // A normally-started run owns generation 0; a recovery claim advances it.
+    const generation = run.recoveryGeneration;
+    await this.store.updateRun(run.runId, { status: 'running' }, generation);
     const activeRun: ExecutionRun = { ...run, status: 'running' };
 
     this.activeRuns.set(activeRun.runId, abortController);
     this.lifecycleStates.set(activeRun.runId, lifecycle);
+    this.runGenerations.set(activeRun.runId, generation);
 
-    const heartbeat = new Heartbeat(this.store, activeRun.runId, this.heartbeatIntervalMs);
+    const heartbeat = new Heartbeat(this.store, activeRun.runId, this.heartbeatIntervalMs, generation, this.eventBus);
     heartbeat.start();
 
     this.eventBus.emit('run:started', {
@@ -161,6 +166,7 @@ export class DurableWorkflow<TInput, TOutput> {
       replayCursor: new Map(),
       eventBus: this.eventBus,
       signal,
+      generation,
     });
 
     const originalStep = ctx.step.bind(ctx);
@@ -170,42 +176,43 @@ export class DurableWorkflow<TInput, TOutput> {
     const requestGracefulStop = DurableWorkflow.createGracefulStopRequester(lifecycle);
     let runningCost = 0;
 
-    ctx.step = async <T>(name: string, fn: () => T | Promise<T>): Promise<T> => {
-      // Pre-step: budget check
-      if (this.budgetConfig) {
-        const elapsed = Date.now() - startTime;
-        const budgetResult = checkBudget({
-          totals: activeRun.totals,
-          elapsedMs: elapsed,
-          config: this.budgetConfig,
-        });
+    const runBudgetCheckAndEmit = (): void => {
+      if (!this.budgetConfig) return;
 
-        if (budgetResult.status === 'warning' && budgetResult.triggeredBy && !warningsEmitted.has(budgetResult.triggeredBy)) {
-          warningsEmitted.add(budgetResult.triggeredBy);
-          this.eventBus.emit('budget:warning', {
-            type: 'budget:warning',
-            timestamp: new Date(),
-            runId: activeRun.runId,
-            currentCost: activeRun.totals.cost,
-            budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
-            percentUsed: budgetResult.percentUsed,
-          } satisfies BudgetWarningEvent);
-        }
+      const budgetResult = checkBudget({
+        totals: activeRun.totals,
+        elapsedMs: Date.now() - startTime,
+        config: this.budgetConfig,
+      });
 
-        if (budgetResult.status === 'exceeded') {
-          this.eventBus.emit('budget:exceeded', {
-            type: 'budget:exceeded',
-            timestamp: new Date(),
-            runId: activeRun.runId,
-            currentCost: activeRun.totals.cost,
-            budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
-            action: 'graceful_stop',
-          } satisfies BudgetExceededEvent);
-          requestGracefulStop('budget_exceeded');
-        }
+      if (budgetResult.status === 'warning' && budgetResult.triggeredBy && !warningsEmitted.has(budgetResult.triggeredBy)) {
+        warningsEmitted.add(budgetResult.triggeredBy);
+        this.eventBus.emit('budget:warning', {
+          type: 'budget:warning',
+          timestamp: new Date(),
+          runId: activeRun.runId,
+          currentCost: activeRun.totals.cost,
+          budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
+          percentUsed: budgetResult.percentUsed,
+        } satisfies BudgetWarningEvent);
       }
 
-      // Phase gate: lifecycle stopping/terminated
+      if (budgetResult.status === 'exceeded') {
+        this.eventBus.emit('budget:exceeded', {
+          type: 'budget:exceeded',
+          timestamp: new Date(),
+          runId: activeRun.runId,
+          currentCost: activeRun.totals.cost,
+          budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
+          action: 'graceful_stop',
+        } satisfies BudgetExceededEvent);
+        requestGracefulStop('budget_exceeded');
+      }
+    };
+
+    ctx.step = async <T>(name: string, fn: () => T | Promise<T>): Promise<T> => {
+      runBudgetCheckAndEmit();
+
       if (lifecycle.phase === 'stopping') {
         if (!lifecycle.summaryStepAllowed) {
           throw new DOMException('The operation was aborted.', 'AbortError');
@@ -230,7 +237,6 @@ export class DurableWorkflow<TInput, TOutput> {
 
       activeRun.totals.steps++;
 
-      // O(1) cost read — reads from just-persisted outcome
       const operationKey = computeOperationKey(activeRun.runId, name, seqBeforeStep);
       const outcome = await this.store.getOutcomeByKey(operationKey);
       if (outcome) {
@@ -238,7 +244,6 @@ export class DurableWorkflow<TInput, TOutput> {
         activeRun.totals.cost = runningCost;
       }
 
-      // Post-step: loop detection
       if (this.loopConfig) {
         stepHistory.push({
           nodeName: name,
@@ -266,10 +271,69 @@ export class DurableWorkflow<TInput, TOutput> {
       return result;
     };
 
+    const originalParallel = ctx.parallel.bind(ctx);
+
+    ctx.parallel = async <T>(
+      steps: Array<{ name: string; fn: () => T | Promise<T> }>,
+    ): Promise<T[]> => {
+      runBudgetCheckAndEmit();
+
+      if (lifecycle.phase === 'terminated' || lifecycle.phase === 'stopping') {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+
+      const seqBeforeGroup = ctx.currentSequence;
+      const results = await originalParallel(steps);
+
+      activeRun.totals.steps += steps.length;
+
+      for (let i = 0; i < steps.length; i++) {
+        const key = computeOperationKey(activeRun.runId, steps[i].name, seqBeforeGroup + i);
+        if (!ctx.wasReplayed(key)) {
+          const outcome = await this.store.getOutcomeByKey(key);
+          if (outcome) {
+            runningCost += outcome.tokens.costUsd;
+          }
+        }
+      }
+      activeRun.totals.cost = runningCost;
+
+      runBudgetCheckAndEmit();
+
+      if (this.loopConfig) {
+        const stepsBase = activeRun.totals.steps - steps.length;
+        for (let i = 0; i < steps.length; i++) {
+          stepHistory.push({
+            nodeName: steps[i].name,
+            sequence: stepsBase + i + 1,
+            outputHash: hashResult(results[i]),
+          });
+        }
+
+        const loopResult = detectLoop(stepHistory, this.loopConfig);
+        if (loopResult.detected) {
+          this.eventBus.emit('loop:detected', {
+            type: 'loop:detected',
+            timestamp: new Date(),
+            runId: activeRun.runId,
+            loopType: loopResult.loopType!,
+            detectedAtStep: activeRun.totals.steps,
+            repetitions: loopResult.repetitions!,
+          } satisfies LoopDetectedEvent);
+
+          if (loopResult.action === 'graceful_stop') {
+            requestGracefulStop('loop_detected');
+          }
+        }
+      }
+
+      return results;
+    };
+
     try {
       const result = await this.fn(ctx, input);
 
-      await this.store.updateRun(activeRun.runId, { status: 'completed', totals: activeRun.totals });
+      await this.store.updateRun(activeRun.runId, { status: 'completed', totals: activeRun.totals }, generation);
 
       this.eventBus.emit('run:completed', {
         type: 'run:completed',
@@ -281,17 +345,42 @@ export class DurableWorkflow<TInput, TOutput> {
 
       return result;
     } catch (error: unknown) {
-      // Kill switch: abort was triggered externally via terminate()
-      // terminate() already updates the store, so just return
+      // Fenced means another worker reclaimed this run at a higher generation.
+      // That is not a failure: yield to the winner, writing no terminal state
+      // and emitting no run:failed.
+      if (error instanceof DurableError && error.code === 'FENCED') {
+        abortController.abort();
+        return undefined as never;
+      }
+
+      // A terminal write below can itself be fenced if a reclaim races it, so
+      // route those writes through this guard to yield cleanly instead of
+      // letting a raw FENCED escape.
+      const writeTerminal = async (
+        updates: Parameters<JournalStore['updateRun']>[1],
+      ): Promise<boolean> => {
+        try {
+          await this.store.updateRun(activeRun.runId, updates, generation);
+          return true;
+        } catch (writeError) {
+          if (writeError instanceof DurableError && writeError.code === 'FENCED') {
+            abortController.abort();
+            return false;
+          }
+          throw writeError;
+        }
+      };
+
+      // An AbortError here comes from terminate() (kill switch, already
+      // persisted) or from a completed graceful stop that must be marked
+      // terminated.
       if (error instanceof Error && error.name === 'AbortError') {
         if (lifecycle.terminationReason === 'kill_switch') {
-          // Store already updated by terminate() — no action needed
           return undefined as never;
         }
-        // Graceful stop completed: phase transitioned to terminated and threw AbortError
         if (lifecycle.phase === 'terminated' || lifecycle.phase === 'stopping') {
           const reason = lifecycle.terminationReason ?? 'budget_exceeded';
-          await this.store.updateRun(activeRun.runId, {
+          await writeTerminal({
             status: 'terminated',
             metadata: { ...activeRun.metadata, terminationReason: reason },
           });
@@ -300,17 +389,18 @@ export class DurableWorkflow<TInput, TOutput> {
         return undefined as never;
       }
 
-      // Graceful stop completed or timed out — mark terminated
       if (lifecycle.phase === 'terminated' || lifecycle.phase === 'stopping') {
         const reason = lifecycle.terminationReason ?? 'budget_exceeded';
-        await this.store.updateRun(activeRun.runId, {
+        await writeTerminal({
           status: 'terminated',
           metadata: { ...activeRun.metadata, terminationReason: reason },
         });
         return undefined as never;
       }
 
-      await this.store.updateRun(activeRun.runId, { status: 'failed' });
+      if (!(await writeTerminal({ status: 'failed' }))) {
+        return undefined as never;
+      }
 
       this.eventBus.emit('run:failed', {
         type: 'run:failed',
@@ -323,6 +413,7 @@ export class DurableWorkflow<TInput, TOutput> {
     } finally {
       this.activeRuns.delete(activeRun.runId);
       this.lifecycleStates.delete(activeRun.runId);
+      this.runGenerations.delete(activeRun.runId);
       heartbeat.stop();
     }
   }
@@ -343,31 +434,45 @@ export class DurableWorkflow<TInput, TOutput> {
       throw new DurableError('RUN_TERMINATED', `Run ${runId} is not active`);
     }
 
-    // Mark lifecycle locally to prevent new steps from starting
     const lifecycle = this.lifecycleStates.get(runId);
     if (lifecycle) {
       lifecycle.phase = 'terminated';
       lifecycle.terminationReason = 'kill_switch';
     }
 
+    // Use the generation THIS owner holds; never re-read it from the store, or
+    // a worker that was reclaimed could legitimize a write against the new
+    // owner's generation. It is set alongside the activeRuns entry, so its
+    // absence for an active run is an internal inconsistency, not a gen-0 run.
+    const generation = this.runGenerations.get(runId);
+    if (generation === undefined) {
+      throw new DurableError(
+        'RUN_TERMINATED',
+        `Run ${runId} is active but its held generation is unknown; refusing to terminate against an unverified generation`,
+      );
+    }
+
     try {
-      // Persist termination state FIRST (durable store is source of truth)
+      // Persist termination before aborting: the store is the source of truth.
       await this.store.updateRun(runId, {
         status: 'terminated',
         metadata: { terminationReason: 'kill_switch', terminationDetail: reason },
-      });
+      }, generation);
     } catch (error) {
-      // Best-effort local cleanup even on store failure
+      // Fenced or store failure: nothing was persisted. Release local state,
+      // abort in-flight work, and propagate the error so the caller learns the
+      // termination did not take effect.
       abortController.abort();
       this.activeRuns.delete(runId);
       this.lifecycleStates.delete(runId);
+      this.runGenerations.delete(runId);
       throw error;
     }
 
-    // Success path: persist succeeded, clean up local state
     abortController.abort();
     this.activeRuns.delete(runId);
     this.lifecycleStates.delete(runId);
+    this.runGenerations.delete(runId);
   }
 
   private async recoverStaleRuns(): Promise<void> {
@@ -376,12 +481,19 @@ export class DurableWorkflow<TInput, TOutput> {
 
     for (const run of staleRuns) {
       if (run.config.name !== this.name) continue;
+
+      const claim = await this.store.claimRunForRecovery(run.runId);
+      if (!claim) continue;
+
+      // A recovering run is owned entirely by RecoveryEngine.recover() and is
+      // deliberately not registered in activeRuns/runGenerations, so terminate()
+      // refuses it rather than writing against a generation it does not hold.
       try {
         const input = run.metadata?.input as TInput;
-        await recoveryEngine.recover(run.runId, this.fn, input);
+        await recoveryEngine.recover(claim.run.runId, this.fn, input, claim.generation);
       } catch {
-        // Failure isolation: RecoveryEngine already marks run as failed and emits run:failed.
-        // Continue recovering remaining stale runs.
+        // Isolate failures: RecoveryEngine already handled its own terminal
+        // state, so keep recovering the remaining stale runs.
       }
     }
   }

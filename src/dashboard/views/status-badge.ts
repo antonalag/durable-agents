@@ -1,7 +1,7 @@
 import { escapeHtml } from '../escape.js';
 
 const ALL_STATUSES = new Set([
-  'pending', 'running', 'completed', 'failed', 'stale', 'terminated', 'skipped',
+  'pending', 'running', 'recovering', 'completed', 'failed', 'stale', 'terminated', 'skipped',
 ]);
 
 export function statusBadge(status: string): string {

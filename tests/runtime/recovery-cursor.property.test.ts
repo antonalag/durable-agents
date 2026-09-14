@@ -23,7 +23,7 @@ describe('Property 1: Replay cursor captures all persisted outcomes', () => {
           const store = new SqliteJournalStore(':memory:');
           try {
             const run = await store.createRun({ name: 'cursor-prop-test' });
-            await store.updateRun(run.runId, { status: 'running' });
+            await store.updateRun(run.runId, { status: 'running' }, 0);
 
             let expectedOutcomeCount = 0;
 
@@ -39,7 +39,7 @@ describe('Property 1: Replay cursor captures all persisted outcomes', () => {
                 startedAt: new Date(),
                 cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
                 attempt: 1,
-              });
+              }, 0);
 
               if (spec.hasOutcome) {
                 const opKey = computeOperationKey(run.runId, `step-${i}`, i);
@@ -52,7 +52,7 @@ describe('Property 1: Replay cursor captures all persisted outcomes', () => {
                   tokens: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
                   durationMs: 10,
                   recordedAt: new Date(),
-                });
+                }, 0);
                 expectedOutcomeCount++;
               }
             }
@@ -73,6 +73,7 @@ describe('Property 1: Replay cursor captures all persisted outcomes', () => {
                 return 'done';
               },
               undefined,
+              0,
             );
 
             const replayedCount = totalSteps - freshExecutions;

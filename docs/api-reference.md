@@ -92,7 +92,12 @@ class RecoveryEngine {
   constructor(store: JournalStore, eventBus: EventBus, staleTimeoutMs: number);
 
   detectStaleRuns(): Promise<ExecutionRun[]>;
-  recover<TInput, TOutput>(runId: string, fn: WorkflowFn<TInput, TOutput>, input: TInput): Promise<TOutput>;
+  recover<TInput, TOutput>(
+    runId: string,
+    fn: WorkflowFn<TInput, TOutput>,
+    input: TInput,
+    generation: number,
+  ): Promise<TOutput>;
 }
 ```
 
@@ -104,6 +109,8 @@ class RecoveryEngine {
 | `eventBus` | `EventBus` | — | Event emitter for recovery events |
 | `staleTimeoutMs` | `number` | — | Heartbeat silence threshold (ms) |
 
+The `generation` passed to `recover()` is the fencing token returned by `claimRunForRecovery` (the `RecoveryClaim.generation`). The engine threads it into every ownership-sensitive write, so a worker whose claim has been superseded is rejected rather than corrupting the winner's journal.
+
 **Usage:**
 
 ```ts
@@ -112,9 +119,15 @@ import { RecoveryEngine, EventBus, SqliteJournalStore } from 'durable-agents';
 const engine = new RecoveryEngine(store, new EventBus(), 30_000);
 const stale = await engine.detectStaleRuns();
 for (const run of stale) {
-  await engine.recover(run.runId, workflowFn, run.metadata.input);
+  const claim = await store.claimRunForRecovery(run.runId);
+  if (!claim) continue; // run is terminal, or another worker raced ahead
+  await engine.recover(claim.run.runId, workflowFn, run.metadata.input, claim.generation);
 }
 ```
+
+> **Generation fencing scope.** Generation fencing applies to the core `RecoveryEngine` recovery path only. When a stale run is reclaimed, its `recovery_generation` advances and every subsequent ownership-sensitive write (`updateHeartbeat`, `createStep`, `recordOutcome`, `updateStep`, `updateRun`, including `terminate()`) must carry the held generation; a stale worker's writes are rejected with `DurableError('FENCED')`.
+>
+> This is single-database fencing for the documented single-store deployment model — it is **not** distributed leader election or universal cross-store coordination. The LangGraph adapter recovery path is deliberately **outside** the fence: it uses a create-new-run recovery model (it marks matching stale runs failed and starts a fresh run) rather than reclaiming a generation. See the [recovery guide](./guides/recovery.md).
 
 ---
 
@@ -473,8 +486,21 @@ interface BudgetConfig {
   maxSteps?: number;
   maxDurationMs?: number;
   warningThreshold?: number;  // Default: 0.8 (fires warning at 80%)
+  costFunction?: (tokens: { inputTokens: number; outputTokens: number }) => number;
 }
 ```
+
+`costFunction` converts extracted token counts into a USD cost. It is applied inside the adapters (LangGraph, AI SDK) where token counts are available, before the outcome is persisted. It must be a pure, synchronous function — no network calls or async work. If it throws, or returns `NaN`, `Infinity`, or a negative value, the adapter throws and the outcome is not persisted.
+
+```ts
+const budget: BudgetConfig = {
+  maxCostUsd: 1.0,
+  costFunction: ({ inputTokens, outputTokens }) =>
+    inputTokens * 0.000003 + outputTokens * 0.000015,
+};
+```
+
+Cost is only produced where an adapter extracts tokens; core `ctx.step()` outcomes always record `costUsd: 0`. `maxCostUsd` enforces a budget over the observed `OutcomeRecord.tokens.costUsd` values — it does not guarantee total external LLM spend.
 
 > **Limitation — `maxCostUsd` is adapter-dependent:** The durable run cost is derived from the sum of `OutcomeRecord.tokens.costUsd` for all completed steps. The core `ctx.step()` path records `costUsd: 0` for all outcomes. Without a framework adapter (LangGraph, AI SDK) that provides real token costs, `maxCostUsd` cannot enforce spending limits. Budget enforcement is post-step: a step may push cost above the limit, and enforcement fires before the next step.
 
@@ -508,10 +534,18 @@ interface ExecutionRun {
   totals: { cost: number; tokens: number; steps: number; recoveryCount: number };
   createdAt: Date;
   updatedAt: Date;
-  lastHeartbeat: Date;
+  recoveryGeneration: number;
+  ownerToken?: string;
 }
 
-type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stale' | 'terminated';
+type RunStatus =
+  | 'pending'
+  | 'running'
+  | 'recovering'
+  | 'completed'
+  | 'failed'
+  | 'stale'
+  | 'terminated';
 ```
 
 ---
@@ -536,6 +570,8 @@ interface Step {
 
 type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 ```
+
+> **`sequence: -1` (out-of-band marker):** Steps created by `ctx.idempotent()` and by the AI SDK adapter's `withDurability()` use `sequence: -1`. This is an intentional marker for steps that are not allocated a positional sequence — they are keyed by an explicit `operationKey` rather than by position in the run. It is not an error or a sentinel for "unknown"; positional steps (via `ctx.step()` / `ctx.parallel()`) always receive a non-negative sequence.
 
 ---
 
@@ -578,27 +614,45 @@ interface TokenCost {
 
 Persistence interface for runs, steps, and outcomes. Implement this to add a custom backend.
 
+Ownership-sensitive writes (`updateRun`, `createStep`, `updateStep`, `recordOutcome`, `updateHeartbeat`) take a mandatory `expectedGeneration` and are applied only while the run's persisted `recovery_generation` still matches it. On mismatch, `updateRun`/`createStep`/`updateStep`/`recordOutcome` throw `DurableError('FENCED')`; `updateHeartbeat` does not throw and returns `false` instead. See [Generation fencing](#recoveryengine).
+
 ```ts
 interface JournalStore {
   createRun(config: RunConfig): Promise<ExecutionRun>;
   getRun(runId: string): Promise<ExecutionRun | null>;
-  updateRun(runId: string, updates: Partial<Pick<ExecutionRun, 'status' | 'metadata' | 'totals'>>): Promise<ExecutionRun>;
+  updateRun(
+    runId: string,
+    updates: Partial<Pick<ExecutionRun, 'status' | 'metadata' | 'totals'>>,
+    expectedGeneration: number,
+  ): Promise<ExecutionRun>;
   listRuns(filter?: ListRunsFilter): Promise<ExecutionRun[]>;
   deleteRun(runId: string): Promise<void>;
 
-  createStep(step: Omit<Step, 'completedAt'>): Promise<Step>;
+  createStep(step: Omit<Step, 'completedAt'>, expectedGeneration: number): Promise<Step>;
   getStep(stepId: string): Promise<Step | null>;
-  updateStep(stepId: string, updates: Partial<Pick<Step, 'status' | 'completedAt' | 'cost' | 'attempt'>>): Promise<Step>;
+  updateStep(
+    stepId: string,
+    updates: Partial<Pick<Step, 'status' | 'completedAt' | 'cost' | 'attempt'>>,
+    expectedGeneration: number,
+  ): Promise<Step>;
   listSteps(runId: string): Promise<Step[]>;
 
-  recordOutcome(outcome: OutcomeRecord): Promise<OutcomeRecord>;
+  recordOutcome(outcome: OutcomeRecord, expectedGeneration: number): Promise<OutcomeRecord>;
   getOutcome(outcomeId: string): Promise<OutcomeRecord | null>;
   getOutcomeByKey(operationKey: string): Promise<OutcomeRecord | null>;
   listOutcomes(stepId: string): Promise<OutcomeRecord[]>;
 
-  updateHeartbeat(runId: string): Promise<void>;
+  updateHeartbeat(runId: string, expectedGeneration: number): Promise<boolean>;
   findStaleRuns(timeoutMs: number): Promise<ExecutionRun[]>;
+
+  claimRunForRecovery(runId: string): Promise<RecoveryClaim | null>;
   deleteRunsOlderThan(maxAgeMs: number): Promise<number>;
+}
+
+interface RecoveryClaim {
+  run: ExecutionRun;
+  generation: number;
+  ownerToken: string;
 }
 ```
 
@@ -618,7 +672,9 @@ type DurableEvent =
   | StepCompletedEvent
   | BudgetWarningEvent
   | BudgetExceededEvent
-  | LoopDetectedEvent;
+  | LoopDetectedEvent
+  | HeartbeatFailedEvent
+  | HeartbeatFencedEvent;
 
 type EventMap = {
   'run:started': RunStartedEvent;
@@ -630,8 +686,12 @@ type EventMap = {
   'budget:warning': BudgetWarningEvent;
   'budget:exceeded': BudgetExceededEvent;
   'loop:detected': LoopDetectedEvent;
+  'heartbeat:failed': HeartbeatFailedEvent;
+  'heartbeat:fenced': HeartbeatFencedEvent;
 };
 ```
+
+`heartbeat:failed` fires when a heartbeat write rejects (transient store error). `heartbeat:fenced` fires when a heartbeat write is not applied because the run's generation advanced past the one this worker holds — the heartbeat stops beating and yields the run to the newer claimant.
 
 ---
 
@@ -741,8 +801,11 @@ type DurableErrorCode =
   | 'RUN_TERMINATED'
   | 'STORE_ERROR'
   | 'INVALID_CONFIG'
+  | 'FENCED'
   | 'DASHBOARD_PORT_IN_USE';
 ```
+
+`'FENCED'` is thrown by ownership-sensitive `JournalStore` writes when the caller's held generation no longer matches the run's persisted `recovery_generation` (see [Generation fencing](#recoveryengine)).
 
 **Usage:**
 

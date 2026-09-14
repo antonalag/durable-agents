@@ -1,6 +1,7 @@
 export type RunStatus =
   | 'pending'
   | 'running'
+  | 'recovering'
   | 'completed'
   | 'failed'
   | 'stale'
@@ -101,6 +102,20 @@ export interface ExecutionRun {
   updatedAt: Date;
   /** Used for stale detection — runtime updates this periodically. */
   lastHeartbeat: Date;
+  /**
+   * Monotonic fencing token. Advanced by +1 on every successful recovery claim.
+   * A write is only applied while the persisted value equals the generation the
+   * writer holds. Default 0 — a normally-started run owns generation 0.
+   */
+  recoveryGeneration: number;
+  /** UUID of the current claimant. Observability only; not the fence predicate. */
+  ownerToken?: string;
+}
+
+export interface RecoveryClaim {
+  run: ExecutionRun;
+  generation: number;
+  ownerToken: string;
 }
 
 export interface BaseEvent {
@@ -169,6 +184,16 @@ export interface LoopDetectedEvent extends BaseEvent {
   repetitions: number;
 }
 
+export interface HeartbeatFailedEvent extends BaseEvent {
+  type: 'heartbeat:failed';
+  error: Error;
+}
+
+export interface HeartbeatFencedEvent extends BaseEvent {
+  type: 'heartbeat:fenced';
+  generation: number;
+}
+
 export type DurableEvent =
   | RunStartedEvent
   | RunCompletedEvent
@@ -178,7 +203,9 @@ export type DurableEvent =
   | StepCompletedEvent
   | BudgetWarningEvent
   | BudgetExceededEvent
-  | LoopDetectedEvent;
+  | LoopDetectedEvent
+  | HeartbeatFailedEvent
+  | HeartbeatFencedEvent;
 
 export type EventMap = {
   'run:started': RunStartedEvent;
@@ -190,4 +217,6 @@ export type EventMap = {
   'budget:warning': BudgetWarningEvent;
   'budget:exceeded': BudgetExceededEvent;
   'loop:detected': LoopDetectedEvent;
+  'heartbeat:failed': HeartbeatFailedEvent;
+  'heartbeat:fenced': HeartbeatFencedEvent;
 };

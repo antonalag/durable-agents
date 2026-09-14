@@ -49,6 +49,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
   }
 
   let run: ExecutionRun;
+  let generation = 0;
   let heartbeat: Heartbeat;
   let _ctx: DurableContextImpl;
   let stepSequence = 0;
@@ -60,12 +61,19 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
   const beforeAgent: DurableMiddleware['beforeAgent'] = async () => {
     const staleTimeoutMs = config.staleTimeoutMs ?? 30_000;
     const staleRuns = await store.findStaleRuns(staleTimeoutMs);
-    const existingStale = staleRuns.find((r) => r.config.name === config.name);
+    const matching = staleRuns
+      .filter((r) => r.config.name === config.name)
+      .sort(
+        (a, b) =>
+          (b.updatedAt ?? b.createdAt).getTime() -
+          (a.updatedAt ?? a.createdAt).getTime(),
+      );
 
-    if (existingStale) {
-      originalRunId = existingStale.runId;
+    if (matching.length > 0) {
+      const mostRecent = matching[0];
+      originalRunId = mostRecent.runId;
       try {
-        const steps = await store.listSteps(existingStale.runId);
+        const steps = await store.listSteps(mostRecent.runId);
         for (const step of steps) {
           const outcomes = await store.listOutcomes(step.stepId);
           for (const outcome of outcomes) {
@@ -85,15 +93,26 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
         mode = 'fresh';
         totalRecovered = 0;
       }
-      await store.updateRun(existingStale.runId, { status: 'failed' });
+
+      for (const staleRun of matching) {
+        // This create-new-run path stays outside the recovery fence; marking a
+        // stale run failed uses that run's own held generation.
+        await store.updateRun(
+          staleRun.runId,
+          { status: 'failed' },
+          staleRun.recoveryGeneration,
+        );
+      }
     }
 
     run = await store.createRun(config);
-    await store.updateRun(run.runId, { status: 'running' });
+    // Freshly created run owns generation 0; this adapter path never advances it.
+    generation = run.recoveryGeneration;
+    await store.updateRun(run.runId, { status: 'running' }, generation);
     run = { ...run, status: 'running' };
 
     const heartbeatInterval = config.heartbeatIntervalMs ?? 10_000;
-    heartbeat = new Heartbeat(store, run.runId, heartbeatInterval);
+    heartbeat = new Heartbeat(store, run.runId, heartbeatInterval, generation, eventBus);
     heartbeat.start();
 
     _ctx = new DurableContextImpl({
@@ -103,6 +122,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
       replayCursor,
       eventBus,
       signal: new AbortController().signal,
+      generation,
     });
     void _ctx;
 
@@ -155,7 +175,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
       tokens,
       durationMs: 0,
       recordedAt: new Date(),
-    });
+    }, generation);
 
     stepSequence++;
   };
@@ -167,7 +187,7 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
     await store.updateRun(run.runId, {
       status: 'completed',
       totals: finalTotals,
-    });
+    }, generation);
 
     eventBus.emit('run:completed', {
       type: 'run:completed',

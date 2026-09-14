@@ -82,7 +82,7 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
         const run = await store.createRun(makeRunConfig());
         const before = run.updatedAt;
         await new Promise((r) => setTimeout(r, 10));
-        const updated = await store.updateRun(run.runId, { status: 'running' });
+        const updated = await store.updateRun(run.runId, { status: 'running' }, 0);
         expect(updated.status).toBe('running');
         expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
         expect(updated.runId).toBe(run.runId);
@@ -90,7 +90,7 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
       });
 
       it('updateRun throws for non-existent run', async () => {
-        await expect(store.updateRun('nope', { status: 'running' })).rejects.toThrow();
+        await expect(store.updateRun('nope', { status: 'running' }, 0)).rejects.toThrow();
       });
 
       it('listRuns returns runs ordered by createdAt descending', async () => {
@@ -109,7 +109,7 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('listRuns filters by status', async () => {
         const r1 = await store.createRun(makeRunConfig());
-        await store.updateRun(r1.runId, { status: 'running' });
+        await store.updateRun(r1.runId, { status: 'running' }, 0);
         await store.createRun(makeRunConfig());
 
         const running = await store.listRuns({ status: 'running' });
@@ -133,8 +133,8 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('deleteRun cascades to steps and outcomes', async () => {
         const run = await store.createRun(makeRunConfig());
-        const step = await store.createStep(makeStep(run.runId, 0));
-        await store.recordOutcome(makeOutcome(step.stepId));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
+        await store.recordOutcome(makeOutcome(step.stepId), 0);
 
         await store.deleteRun(run.runId);
 
@@ -148,7 +148,7 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
       it('createStep and getStep', async () => {
         const run = await store.createRun(makeRunConfig());
         const stepInput = makeStep(run.runId, 0);
-        const step = await store.createStep(stepInput);
+        const step = await store.createStep(stepInput, 0);
         expect(step.stepId).toBe(stepInput.stepId);
         expect(step.completedAt).toBeUndefined();
 
@@ -163,14 +163,14 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('updateStep updates fields', async () => {
         const run = await store.createRun(makeRunConfig());
-        const step = await store.createStep(makeStep(run.runId, 0));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
         const now = new Date();
         const updated = await store.updateStep(step.stepId, {
           status: 'completed',
           completedAt: now,
           cost: { inputTokens: 100, outputTokens: 50, costUsd: 0.01 },
           attempt: 2,
-        });
+        }, 0);
         expect(updated.status).toBe('completed');
         expect(updated.completedAt).toBeInstanceOf(Date);
         expect(updated.cost.inputTokens).toBe(100);
@@ -179,9 +179,9 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('listSteps returns steps ordered by sequence ascending', async () => {
         const run = await store.createRun(makeRunConfig());
-        await store.createStep(makeStep(run.runId, 2));
-        await store.createStep(makeStep(run.runId, 0));
-        await store.createStep(makeStep(run.runId, 1));
+        await store.createStep(makeStep(run.runId, 2), 0);
+        await store.createStep(makeStep(run.runId, 0), 0);
+        await store.createStep(makeStep(run.runId, 1), 0);
 
         const steps = await store.listSteps(run.runId);
         expect(steps.map((s) => s.sequence)).toEqual([0, 1, 2]);
@@ -191,9 +191,9 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
     describe('outcomes', () => {
       it('recordOutcome and getOutcome', async () => {
         const run = await store.createRun(makeRunConfig());
-        const step = await store.createStep(makeStep(run.runId, 0));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
         const outcome = makeOutcome(step.stepId);
-        const recorded = await store.recordOutcome(outcome);
+        const recorded = await store.recordOutcome(outcome, 0);
         expect(recorded.outcomeId).toBe(outcome.outcomeId);
 
         const retrieved = await store.getOutcome(outcome.outcomeId);
@@ -203,9 +203,9 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('getOutcomeByKey returns outcome by operation key', async () => {
         const run = await store.createRun(makeRunConfig());
-        const step = await store.createStep(makeStep(run.runId, 0));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
         const outcome = makeOutcome(step.stepId);
-        await store.recordOutcome(outcome);
+        await store.recordOutcome(outcome, 0);
 
         const byKey = await store.getOutcomeByKey(outcome.operationKey);
         expect(byKey).not.toBeNull();
@@ -218,19 +218,19 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('recordOutcome with duplicate operation_key throws', async () => {
         const run = await store.createRun(makeRunConfig());
-        const step = await store.createStep(makeStep(run.runId, 0));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
         const outcome = makeOutcome(step.stepId);
-        await store.recordOutcome(outcome);
+        await store.recordOutcome(outcome, 0);
 
         const duplicate = { ...outcome, outcomeId: randomUUID() };
-        await expect(store.recordOutcome(duplicate)).rejects.toThrow();
+        await expect(store.recordOutcome(duplicate, 0)).rejects.toThrow();
       });
 
       it('listOutcomes returns outcomes for a step', async () => {
         const run = await store.createRun(makeRunConfig());
-        const step = await store.createStep(makeStep(run.runId, 0));
-        await store.recordOutcome(makeOutcome(step.stepId));
-        await store.recordOutcome(makeOutcome(step.stepId));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
+        await store.recordOutcome(makeOutcome(step.stepId), 0);
+        await store.recordOutcome(makeOutcome(step.stepId), 0);
 
         const outcomes = await store.listOutcomes(step.stepId);
         expect(outcomes.length).toBe(2);
@@ -242,17 +242,17 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
         const run = await store.createRun(makeRunConfig());
         const before = run.lastHeartbeat;
         await new Promise((r) => setTimeout(r, 10));
-        await store.updateHeartbeat(run.runId);
+        await store.updateHeartbeat(run.runId, 0);
         const updated = await store.getRun(run.runId);
         expect(updated!.lastHeartbeat.getTime()).toBeGreaterThan(before.getTime());
       });
 
       it('findStaleRuns returns only running runs with expired heartbeat', async () => {
         const r1 = await store.createRun(makeRunConfig());
-        await store.updateRun(r1.runId, { status: 'running' });
+        await store.updateRun(r1.runId, { status: 'running' }, 0);
 
         const r2 = await store.createRun(makeRunConfig());
-        await store.updateRun(r2.runId, { status: 'running' });
+        await store.updateRun(r2.runId, { status: 'running' }, 0);
 
         const r3 = await store.createRun(makeRunConfig());
 
@@ -286,8 +286,8 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('cascades delete to steps and outcomes', async () => {
         const run = await store.createRun(makeRunConfig());
-        const step = await store.createStep(makeStep(run.runId, 0));
-        await store.recordOutcome(makeOutcome(step.stepId));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
+        await store.recordOutcome(makeOutcome(step.stepId), 0);
 
         await new Promise((r) => setTimeout(r, 50));
         await store.deleteRunsOlderThan(25);
@@ -319,7 +319,7 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
           status: 'running',
           metadata: { updated: true },
           totals: { cost: 1, tokens: 100, steps: 5, recoveryCount: 1 },
-        });
+        }, 0);
         expect(updated.runId).toBe(run.runId);
         expect(updated.config.name).toBe(run.config.name);
         expect(updated.createdAt.getTime()).toBe(run.createdAt.getTime());
@@ -341,9 +341,9 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('cascade delete removes all steps and outcomes', async () => {
         const run = await store.createRun(makeRunConfig());
-        const step = await store.createStep(makeStep(run.runId, 0));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
         const outcome = makeOutcome(step.stepId);
-        await store.recordOutcome(outcome);
+        await store.recordOutcome(outcome, 0);
 
         await store.deleteRun(run.runId);
 
@@ -357,7 +357,7 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
         const run = await store.createRun(makeRunConfig());
         const sequences = [3, 1, 4, 0, 2];
         for (const seq of sequences) {
-          await store.createStep(makeStep(run.runId, seq));
+          await store.createStep(makeStep(run.runId, seq), 0);
         }
         const steps = await store.listSteps(run.runId);
         for (let i = 1; i < steps.length; i++) {
@@ -367,9 +367,9 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('recorded outcome can be retrieved by key with matching fields', async () => {
         const run = await store.createRun(makeRunConfig());
-        const step = await store.createStep(makeStep(run.runId, 0));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
         const outcome = makeOutcome(step.stepId);
-        await store.recordOutcome(outcome);
+        await store.recordOutcome(outcome, 0);
 
         const retrieved = await store.getOutcomeByKey(outcome.operationKey);
         expect(retrieved).not.toBeNull();
@@ -381,10 +381,10 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
 
       it('findStaleRuns only returns running runs with expired heartbeats', async () => {
         const running = await store.createRun(makeRunConfig());
-        await store.updateRun(running.runId, { status: 'running' });
+        await store.updateRun(running.runId, { status: 'running' }, 0);
 
         const completed = await store.createRun(makeRunConfig());
-        await store.updateRun(completed.runId, { status: 'completed' });
+        await store.updateRun(completed.runId, { status: 'completed' }, 0);
 
         const pending = await store.createRun(makeRunConfig());
 
@@ -401,8 +401,8 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
       // Property 12: TTL delete correctness
       it('deleteRunsOlderThan deletes exactly the runs older than threshold', async () => {
         const oldRun = await store.createRun(makeRunConfig());
-        const oldStep = await store.createStep(makeStep(oldRun.runId, 0));
-        await store.recordOutcome(makeOutcome(oldStep.stepId));
+        const oldStep = await store.createStep(makeStep(oldRun.runId, 0), 0);
+        await store.recordOutcome(makeOutcome(oldStep.stepId), 0);
 
         await new Promise((r) => setTimeout(r, 50));
 
@@ -431,18 +431,18 @@ export function journalStoreSuite(name: string, factory: StoreFactory): void {
         expect(retrieved!.updatedAt).toBeInstanceOf(Date);
         expect(retrieved!.lastHeartbeat).toBeInstanceOf(Date);
 
-        const step = await store.createStep(makeStep(run.runId, 0));
+        const step = await store.createStep(makeStep(run.runId, 0), 0);
         const retrievedStep = await store.getStep(step.stepId);
         expect(retrievedStep!.startedAt).toBeInstanceOf(Date);
 
         const now = new Date();
-        await store.updateStep(step.stepId, { status: 'completed', completedAt: now });
+        await store.updateStep(step.stepId, { status: 'completed', completedAt: now }, 0);
         const completedStep = await store.getStep(step.stepId);
         expect(completedStep!.completedAt).toBeInstanceOf(Date);
         expect(completedStep!.completedAt!.getTime()).toBe(now.getTime());
 
         const outcome = makeOutcome(step.stepId);
-        await store.recordOutcome(outcome);
+        await store.recordOutcome(outcome, 0);
         const retrievedOutcome = await store.getOutcome(outcome.outcomeId);
         expect(retrievedOutcome!.recordedAt).toBeInstanceOf(Date);
         expect(retrievedOutcome!.recordedAt.getTime()).toBe(outcome.recordedAt.getTime());

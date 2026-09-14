@@ -68,7 +68,7 @@ describe('Property 8: Operation key synchronization', () => {
     const eventBus = new EventBus();
 
     const run = await store.createRun({ name: 'key-sync-test' });
-    await store.updateRun(run.runId, { status: 'running' });
+    await store.updateRun(run.runId, { status: 'running' }, 0);
 
     for (let i = 0; i < 2; i++) {
       const stepId = `step-${i}`;
@@ -81,7 +81,7 @@ describe('Property 8: Operation key synchronization', () => {
         startedAt: new Date(),
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
-      });
+      }, 0);
       await store.recordOutcome({
         outcomeId: `outcome-${i}`,
         stepId,
@@ -91,7 +91,7 @@ describe('Property 8: Operation key synchronization', () => {
         tokens: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         durationMs: 10,
         recordedAt: new Date(),
-      });
+      }, 0);
     }
 
     let freshCount = 0;
@@ -120,6 +120,7 @@ describe('Property 8: Operation key synchronization', () => {
         return 'done';
       },
       undefined,
+      0,
     );
 
     expect(freshCount).toBe(2);
@@ -140,7 +141,7 @@ describe('Property 8: Operation key synchronization', () => {
     const eventBus = new EventBus();
 
     const run = await store.createRun({ name: 'key-sync-recovery' });
-    await store.updateRun(run.runId, { status: 'running' });
+    await store.updateRun(run.runId, { status: 'running' }, 0);
 
     // Pre-persist 2 outcomes (simulating a partial run)
     for (let i = 0; i < 2; i++) {
@@ -154,7 +155,7 @@ describe('Property 8: Operation key synchronization', () => {
         startedAt: new Date(),
         cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         attempt: 1,
-      });
+      }, 0);
       await store.recordOutcome({
         outcomeId: `pre-outcome-${i}`,
         stepId,
@@ -164,7 +165,7 @@ describe('Property 8: Operation key synchronization', () => {
         tokens: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         durationMs: 5,
         recordedAt: new Date(),
-      });
+      }, 0);
     }
 
     const executionLog: string[] = [];
@@ -198,6 +199,7 @@ describe('Property 8: Operation key synchronization', () => {
         return 'complete';
       },
       undefined,
+      0,
     );
 
     // Only fresh steps should have executed

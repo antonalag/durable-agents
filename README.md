@@ -162,7 +162,7 @@ npx durable-agents recover --db ./agent.db  # Recover stale runs
 
 | Limitation | Description |
 |---|---|
-| **Single-worker recovery** | v0.1.0 assumes a single process performs recovery. Concurrent recovery of the same stale run will produce duplicate step executions with no fencing. |
+| **Single-database fencing** | Concurrent recovery of the same stale run is fenced by a monotonic `recovery_generation` token: reclaiming advances the generation, and a superseded worker's writes are rejected (`DurableError('FENCED')`), so only the latest claimant persists. This is single-database fencing against one store — **not** distributed leader election. It applies to the core `RecoveryEngine` path; the LangGraph adapter uses a separate create-new-run recovery model outside the fence. |
 | **Side-effect window** | A crash between `fn()` returning and `recordOutcome()` persisting causes re-execution on recovery. Use external idempotency keys for non-idempotent side effects. |
 | **Post-step budget (maxCostUsd)** | `maxCostUsd` is adapter-dependent: the core `ctx.step` path records `costUsd: 0` for all outcomes. Without a cost-producing adapter (LangGraph, AI SDK), `maxCostUsd` cannot enforce token-cost budgets. Budget enforcement fires AFTER a step completes, before the next step. |
 

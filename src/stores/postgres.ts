@@ -5,9 +5,11 @@ import type { JournalStore, ListRunsFilter } from './interface.js';
 import type {
   ExecutionRun,
   OutcomeRecord,
+  RecoveryClaim,
   RunConfig,
   Step,
 } from '../core/types.js';
+import { DurableError } from '../errors.js';
 import { serialize, deserialize } from '../serialization/serializer.js';
 
 const MIGRATION_SQL = `
@@ -22,7 +24,9 @@ CREATE TABLE IF NOT EXISTS runs (
   recovery_count INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  last_heartbeat TEXT NOT NULL
+  last_heartbeat TEXT NOT NULL,
+  recovery_generation BIGINT NOT NULL DEFAULT 0,
+  owner_token TEXT
 );
 
 CREATE TABLE IF NOT EXISTS steps (
@@ -48,6 +52,7 @@ CREATE TABLE IF NOT EXISTS outcomes (
   result BYTEA NOT NULL,
   token_input INTEGER DEFAULT 0,
   token_output INTEGER DEFAULT 0,
+  cost_usd DOUBLE PRECISION DEFAULT 0,
   duration_ms INTEGER DEFAULT 0,
   recorded_at TEXT NOT NULL
 );
@@ -66,6 +71,15 @@ export class PostgresJournalStore implements JournalStore {
 
   async migrate(): Promise<void> {
     await this.pool.query(MIGRATION_SQL);
+    await this.pool.query(
+      'ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS cost_usd DOUBLE PRECISION DEFAULT 0',
+    );
+    await this.pool.query(
+      'ALTER TABLE runs ADD COLUMN IF NOT EXISTS recovery_generation BIGINT NOT NULL DEFAULT 0',
+    );
+    await this.pool.query(
+      'ALTER TABLE runs ADD COLUMN IF NOT EXISTS owner_token TEXT',
+    );
   }
 
   async createRun(config: RunConfig): Promise<ExecutionRun> {
@@ -79,6 +93,8 @@ export class PostgresJournalStore implements JournalStore {
       createdAt: now,
       updatedAt: now,
       lastHeartbeat: now,
+      recoveryGeneration: 0,
+      ownerToken: undefined,
     };
 
     await this.pool.query(
@@ -114,34 +130,50 @@ export class PostgresJournalStore implements JournalStore {
   async updateRun(
     runId: string,
     updates: Partial<Pick<ExecutionRun, 'status' | 'metadata' | 'totals'>>,
+    expectedGeneration: number,
   ): Promise<ExecutionRun> {
     const existing = await this.getRun(runId);
     if (!existing) throw new Error(`Run not found: ${runId}`);
 
-    const now = new Date();
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+
     if (updates.status !== undefined) {
-      await this.pool.query(
-        'UPDATE runs SET status = $1, updated_at = $2 WHERE run_id = $3',
-        [updates.status, now.toISOString(), runId],
-      );
+      sets.push(`status = $${i++}`);
+      params.push(updates.status);
     }
     if (updates.metadata !== undefined) {
-      await this.pool.query(
-        'UPDATE runs SET metadata = $1, updated_at = $2 WHERE run_id = $3',
-        [serialize(updates.metadata), now.toISOString(), runId],
-      );
+      sets.push(`metadata = $${i++}`);
+      params.push(serialize(updates.metadata));
     }
     if (updates.totals !== undefined) {
-      await this.pool.query(
-        'UPDATE runs SET total_cost = $1, total_tokens = $2, total_steps = $3, recovery_count = $4, updated_at = $5 WHERE run_id = $6',
-        [
-          updates.totals.cost,
-          updates.totals.tokens,
-          updates.totals.steps,
-          updates.totals.recoveryCount,
-          now.toISOString(),
-          runId,
-        ],
+      sets.push(`total_cost = $${i++}`);
+      params.push(updates.totals.cost);
+      sets.push(`total_tokens = $${i++}`);
+      params.push(updates.totals.tokens);
+      sets.push(`total_steps = $${i++}`);
+      params.push(updates.totals.steps);
+      sets.push(`recovery_count = $${i++}`);
+      params.push(updates.totals.recoveryCount);
+    }
+
+    sets.push(`updated_at = $${i++}`);
+    params.push(new Date().toISOString());
+
+    const runIdIdx = i++;
+    const genIdx = i;
+    params.push(runId);
+    params.push(expectedGeneration);
+    const result = await this.pool.query(
+      `UPDATE runs SET ${sets.join(', ')} WHERE run_id = $${runIdIdx} AND recovery_generation = $${genIdx}`,
+      params,
+    );
+
+    if ((result.rowCount ?? 0) === 0) {
+      throw new DurableError(
+        'FENCED',
+        `Run ${runId} write rejected: generation ${expectedGeneration} no longer holds the claim`,
       );
     }
 
@@ -177,10 +209,14 @@ export class PostgresJournalStore implements JournalStore {
     await this.pool.query('DELETE FROM runs WHERE run_id = $1', [runId]);
   }
 
-  async createStep(step: Omit<Step, 'completedAt'>): Promise<Step> {
-    await this.pool.query(
+  async createStep(
+    step: Omit<Step, 'completedAt'>,
+    expectedGeneration: number,
+  ): Promise<Step> {
+    const result = await this.pool.query(
       `INSERT INTO steps (step_id, run_id, node_name, sequence, status, started_at, input_state_hash, cost_input_tokens, cost_output_tokens, cost_usd, attempt)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+       WHERE (SELECT recovery_generation FROM runs WHERE run_id = $2) = $12`,
       [
         step.stepId,
         step.runId,
@@ -193,8 +229,17 @@ export class PostgresJournalStore implements JournalStore {
         step.cost.outputTokens,
         step.cost.costUsd,
         step.attempt,
+        expectedGeneration,
       ],
     );
+
+    if ((result.rowCount ?? 0) === 0) {
+      throw new DurableError(
+        'FENCED',
+        `Step create rejected for run ${step.runId}: generation ${expectedGeneration} no longer holds the claim`,
+      );
+    }
+
     return { ...step, completedAt: undefined };
   }
 
@@ -210,35 +255,53 @@ export class PostgresJournalStore implements JournalStore {
   async updateStep(
     stepId: string,
     updates: Partial<Pick<Step, 'status' | 'completedAt' | 'cost' | 'attempt'>>,
+    expectedGeneration: number,
   ): Promise<Step> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+
     if (updates.status !== undefined) {
-      await this.pool.query(
-        'UPDATE steps SET status = $1 WHERE step_id = $2',
-        [updates.status, stepId],
-      );
+      sets.push(`status = $${i++}`);
+      params.push(updates.status);
     }
     if (updates.completedAt !== undefined) {
-      await this.pool.query(
-        'UPDATE steps SET completed_at = $1 WHERE step_id = $2',
-        [updates.completedAt.toISOString(), stepId],
-      );
+      sets.push(`completed_at = $${i++}`);
+      params.push(updates.completedAt.toISOString());
     }
     if (updates.cost !== undefined) {
-      await this.pool.query(
-        'UPDATE steps SET cost_input_tokens = $1, cost_output_tokens = $2, cost_usd = $3 WHERE step_id = $4',
-        [
-          updates.cost.inputTokens,
-          updates.cost.outputTokens,
-          updates.cost.costUsd,
-          stepId,
-        ],
+      sets.push(
+        `cost_input_tokens = $${i++}`,
+        `cost_output_tokens = $${i++}`,
+        `cost_usd = $${i++}`,
+      );
+      params.push(
+        updates.cost.inputTokens,
+        updates.cost.outputTokens,
+        updates.cost.costUsd,
       );
     }
     if (updates.attempt !== undefined) {
-      await this.pool.query(
-        'UPDATE steps SET attempt = $1 WHERE step_id = $2',
-        [updates.attempt, stepId],
+      sets.push(`attempt = $${i++}`);
+      params.push(updates.attempt);
+    }
+
+    if (sets.length > 0) {
+      const stepIdIdx = i++;
+      const genIdx = i;
+      params.push(stepId, expectedGeneration);
+      const result = await this.pool.query(
+        `UPDATE steps SET ${sets.join(', ')} WHERE step_id = $${stepIdIdx}
+         AND (SELECT recovery_generation FROM runs WHERE run_id = steps.run_id) = $${genIdx}`,
+        params,
       );
+
+      if ((result.rowCount ?? 0) === 0) {
+        throw new DurableError(
+          'FENCED',
+          `Step ${stepId} update rejected: generation ${expectedGeneration} no longer holds the claim`,
+        );
+      }
     }
 
     const result = await this.getStep(stepId);
@@ -254,10 +317,17 @@ export class PostgresJournalStore implements JournalStore {
     return rows.map((row: Record<string, unknown>) => this.rowToStep(row));
   }
 
-  async recordOutcome(outcome: OutcomeRecord): Promise<OutcomeRecord> {
-    await this.pool.query(
-      `INSERT INTO outcomes (outcome_id, step_id, operation_type, operation_key, result, token_input, token_output, duration_ms, recorded_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+  async recordOutcome(
+    outcome: OutcomeRecord,
+    expectedGeneration: number,
+  ): Promise<OutcomeRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO outcomes (outcome_id, step_id, operation_type, operation_key, result, token_input, token_output, cost_usd, duration_ms, recorded_at)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+       WHERE (
+         SELECT recovery_generation FROM runs
+         WHERE run_id = (SELECT run_id FROM steps WHERE step_id = $2)
+       ) = $11`,
       [
         outcome.outcomeId,
         outcome.stepId,
@@ -266,10 +336,20 @@ export class PostgresJournalStore implements JournalStore {
         Buffer.from(serialize(outcome.result)),
         outcome.tokens.inputTokens,
         outcome.tokens.outputTokens,
+        outcome.tokens.costUsd,
         outcome.durationMs,
         outcome.recordedAt.toISOString(),
+        expectedGeneration,
       ],
     );
+
+    if ((result.rowCount ?? 0) === 0) {
+      throw new DurableError(
+        'FENCED',
+        `Outcome record rejected for step ${outcome.stepId}: generation ${expectedGeneration} no longer holds the claim`,
+      );
+    }
+
     return outcome;
   }
 
@@ -299,20 +379,41 @@ export class PostgresJournalStore implements JournalStore {
     return rows.map((row: Record<string, unknown>) => this.rowToOutcome(row));
   }
 
-  async updateHeartbeat(runId: string): Promise<void> {
-    await this.pool.query(
-      'UPDATE runs SET last_heartbeat = $1 WHERE run_id = $2',
-      [new Date().toISOString(), runId],
+  async updateHeartbeat(
+    runId: string,
+    expectedGeneration: number,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      'UPDATE runs SET last_heartbeat = $1 WHERE run_id = $2 AND recovery_generation = $3',
+      [new Date().toISOString(), runId, expectedGeneration],
     );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async findStaleRuns(timeoutMs: number): Promise<ExecutionRun[]> {
     const threshold = new Date(Date.now() - timeoutMs).toISOString();
     const { rows } = await this.pool.query(
-      "SELECT * FROM runs WHERE status = 'running' AND last_heartbeat < $1",
+      "SELECT * FROM runs WHERE status IN ('running', 'recovering') AND last_heartbeat < $1",
       [threshold],
     );
     return rows.map((row: Record<string, unknown>) => this.rowToRun(row));
+  }
+
+  async claimRunForRecovery(runId: string): Promise<RecoveryClaim | null> {
+    const ownerToken = randomUUID();
+    const { rows } = await this.pool.query(
+      `UPDATE runs
+       SET status = 'recovering',
+           recovery_generation = recovery_generation + 1,
+           owner_token = $2,
+           updated_at = $3
+       WHERE run_id = $1 AND status IN ('running', 'recovering')
+       RETURNING *`,
+      [runId, ownerToken, new Date().toISOString()],
+    );
+    if (rows.length === 0) return null;
+    const run = this.rowToRun(rows[0]);
+    return { run, generation: run.recoveryGeneration, ownerToken };
   }
 
   async deleteRunsOlderThan(maxAgeMs: number): Promise<number> {
@@ -343,6 +444,9 @@ export class PostgresJournalStore implements JournalStore {
       createdAt: new Date(row.created_at as string),
       updatedAt: new Date(row.updated_at as string),
       lastHeartbeat: new Date(row.last_heartbeat as string),
+      // pg returns BIGINT as a string; coerce to number.
+      recoveryGeneration: row.recovery_generation != null ? Number(row.recovery_generation) : 0,
+      ownerToken: (row.owner_token as string) ?? undefined,
     };
   }
 
@@ -382,7 +486,7 @@ export class PostgresJournalStore implements JournalStore {
       tokens: {
         inputTokens: row.token_input as number,
         outputTokens: row.token_output as number,
-        costUsd: 0,
+        costUsd: (row.cost_usd as number) ?? 0,
       },
       durationMs: row.duration_ms as number,
       recordedAt: new Date(row.recorded_at as string),

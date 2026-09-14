@@ -55,7 +55,7 @@ describe('Property 5: Middleware lifecycle invariant', () => {
               cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
               attempt: 1,
             };
-            await store.createStep(step);
+            await store.createStep(step, 0);
 
             await mw.afterModel!({
               runId: run.runId,

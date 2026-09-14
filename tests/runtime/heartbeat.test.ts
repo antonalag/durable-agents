@@ -10,8 +10,8 @@ describe('Heartbeat', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    store = { updateHeartbeat: vi.fn().mockResolvedValue(undefined) };
-    heartbeat = new Heartbeat(store as unknown as JournalStore, runId, intervalMs);
+    store = { updateHeartbeat: vi.fn().mockResolvedValue(true) };
+    heartbeat = new Heartbeat(store as unknown as JournalStore, runId, intervalMs, 0);
   });
 
   afterEach(() => {
@@ -26,7 +26,7 @@ describe('Heartbeat', () => {
 
   it('start() calls updateHeartbeat with the correct runId', () => {
     heartbeat.start();
-    expect(store.updateHeartbeat).toHaveBeenCalledWith(runId);
+    expect(store.updateHeartbeat).toHaveBeenCalledWith(runId, 0);
   });
 
   it('after advancing timer by intervalMs, updateHeartbeat is called again', () => {

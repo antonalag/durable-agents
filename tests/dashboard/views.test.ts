@@ -14,6 +14,7 @@ const mockRun: ExecutionRun = {
   createdAt: new Date('2024-01-01'),
   updatedAt: new Date('2024-01-01'),
   lastHeartbeat: new Date('2024-01-01'),
+  recoveryGeneration: 0,
 };
 
 const mockStep: Step = {

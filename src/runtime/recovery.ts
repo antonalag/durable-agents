@@ -1,9 +1,14 @@
 import type { ExecutionRun, OutcomeRecord, RunRecoveredEvent, RunFailedEvent } from '../core/types.js';
+import { DurableError } from '../errors.js';
 import type { JournalStore } from '../stores/interface.js';
 import { DurableContextImpl } from './context.js';
 import { EventBus } from './event-bus.js';
 import { Heartbeat } from './heartbeat.js';
 import type { WorkflowFn } from './workflow.js';
+
+function isFenced(error: unknown): boolean {
+  return error instanceof DurableError && error.code === 'FENCED';
+}
 
 export class RecoveryEngine {
   constructor(
@@ -20,6 +25,7 @@ export class RecoveryEngine {
     runId: string,
     fn: WorkflowFn<TInput, TOutput>,
     input: TInput,
+    generation: number,
   ): Promise<TOutput> {
     const run = await this.store.getRun(runId);
     if (!run) {
@@ -53,7 +59,10 @@ export class RecoveryEngine {
     }
 
     const heartbeatInterval = run.config.heartbeatIntervalMs ?? 10_000;
-    const heartbeat = new Heartbeat(this.store, runId, heartbeatInterval);
+    const heartbeat = new Heartbeat(this.store, runId, heartbeatInterval, generation, this.eventBus);
+
+    // Aborting on fence unwinds in-flight work via the signal the context observes.
+    const abortController = new AbortController();
 
     const ctx = new DurableContextImpl({
       run,
@@ -61,7 +70,8 @@ export class RecoveryEngine {
       mode: 'replay',
       replayCursor,
       eventBus: this.eventBus,
-      signal: new AbortController().signal,
+      signal: abortController.signal,
+      generation,
     });
 
     heartbeat.start();
@@ -70,7 +80,7 @@ export class RecoveryEngine {
       const result = await fn(ctx, input);
 
       for (const stepId of stepsToHeal) {
-        await this.store.updateStep(stepId, { status: 'completed', completedAt: new Date() });
+        await this.store.updateStep(stepId, { status: 'completed', completedAt: new Date() }, generation);
       }
 
       await this.store.updateRun(runId, {
@@ -80,7 +90,7 @@ export class RecoveryEngine {
           cost: initialCost,
           recoveryCount: run.totals.recoveryCount + 1,
         },
-      });
+      }, generation);
 
       this.eventBus.emit('run:recovered', {
         type: 'run:recovered',
@@ -95,7 +105,14 @@ export class RecoveryEngine {
     } catch (error: unknown) {
       heartbeat.stop();
 
-      await this.store.updateRun(runId, { status: 'failed' });
+      // Fenced means a higher-generation worker owns the run now. Yield to it:
+      // abort, but write no terminal state and emit no run:failed.
+      if (isFenced(error)) {
+        abortController.abort();
+        throw error;
+      }
+
+      await this.store.updateRun(runId, { status: 'failed' }, generation);
 
       this.eventBus.emit('run:failed', {
         type: 'run:failed',

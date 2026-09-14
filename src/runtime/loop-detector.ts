@@ -31,7 +31,7 @@ export function detectLoop(
   const action = config.action ?? 'graceful_stop';
   const maxRep = config.maxRepetitions ?? 3;
 
-  // Check 1: Same-tool repetition
+  // Same-tool repetition
   const last = window[window.length - 1].nodeName;
   let count = 0;
   for (let i = window.length - 1; i >= 0; i--) {
@@ -42,7 +42,7 @@ export function detectLoop(
     return { detected: true, loopType: 'same_tool', repetitions: count, action };
   }
 
-  // Check 2: No progress (identical outputHashes)
+  // No progress: identical output hashes
   const maxNoProgress = config.maxNoProgressSteps ?? 4;
   if (window.length >= maxNoProgress) {
     const tail = window.slice(-maxNoProgress);
@@ -52,7 +52,7 @@ export function detectLoop(
     }
   }
 
-  // Check 3: Oscillation (A-B-A-B pattern)
+  // Oscillation: A-B-A-B pattern
   if (window.length >= 4) {
     const a = window[window.length - 2].nodeName;
     const b = window[window.length - 1].nodeName;

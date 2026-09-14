@@ -11,7 +11,7 @@ describe('Property 1: Exactly-once step execution per operationKey', () => {
         const store = new SqliteJournalStore(':memory:');
 
         const run = await store.createRun({ name: 'test-wf' });
-        await store.updateRun(run.runId, { status: 'running' });
+        await store.updateRun(run.runId, { status: 'running' }, 0);
 
         const ctx = new DurableContextImpl({
           run,
@@ -20,6 +20,7 @@ describe('Property 1: Exactly-once step execution per operationKey', () => {
           replayCursor: new Map(),
           eventBus: new EventBus(),
           signal: new AbortController().signal,
+          generation: 0,
         });
 
         for (let i = 0; i < n; i++) {

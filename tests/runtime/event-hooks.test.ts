@@ -18,6 +18,7 @@ function createMockStore() {
     createdAt: now,
     updatedAt: now,
     lastHeartbeat: now,
+    recoveryGeneration: 0,
   };
 
   return {

@@ -29,7 +29,7 @@ describe('Property 7: Recovery produces identical result to uninterrupted execut
 
           // Clean run
           const cleanRun = await store.createRun({ name: 'clean-wf' });
-          await store.updateRun(cleanRun.runId, { status: 'running' });
+          await store.updateRun(cleanRun.runId, { status: 'running' }, 0);
 
           const cleanCtx = new DurableContextImpl({
             run: cleanRun,
@@ -38,13 +38,14 @@ describe('Property 7: Recovery produces identical result to uninterrupted execut
             replayCursor: new Map(),
             eventBus: new EventBus(),
             signal: new AbortController().signal,
+            generation: 0,
           });
 
           const cleanResult = await workflowFn(cleanCtx, null);
 
           // Set up a second run that "crashed" after K steps
           const recoveryRun = await store.createRun({ name: 'recovery-wf' });
-          await store.updateRun(recoveryRun.runId, { status: 'running' });
+          await store.updateRun(recoveryRun.runId, { status: 'running' }, 0);
 
           const setupCtx = new DurableContextImpl({
             run: recoveryRun,
@@ -53,6 +54,7 @@ describe('Property 7: Recovery produces identical result to uninterrupted execut
             replayCursor: new Map(),
             eventBus: new EventBus(),
             signal: new AbortController().signal,
+            generation: 0,
           });
 
           // Execute only the first K steps to simulate partial completion before crash
@@ -62,7 +64,7 @@ describe('Property 7: Recovery produces identical result to uninterrupted execut
 
           // Recover the run
           const engine = new RecoveryEngine(store, new EventBus(), 30_000);
-          const recoveredResult = await engine.recover(recoveryRun.runId, workflowFn, null);
+          const recoveredResult = await engine.recover(recoveryRun.runId, workflowFn, null, 0);
 
           expect(recoveredResult).toEqual(cleanResult);
 

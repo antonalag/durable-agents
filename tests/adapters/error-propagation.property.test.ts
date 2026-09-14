@@ -19,7 +19,7 @@ describe('Property 6: Error propagation without recording', () => {
         async (toolName, errorMessage) => {
           const store = new SqliteJournalStore(':memory:');
           const run = await store.createRun({ name: 'error-prop-test' });
-          await store.updateRun(run.runId, { status: 'running' });
+          await store.updateRun(run.runId, { status: 'running' }, 0);
 
           const ctx = new DurableContextImpl({
             run,
@@ -28,6 +28,7 @@ describe('Property 6: Error propagation without recording', () => {
             replayCursor: new Map(),
             eventBus: new EventBus(),
             signal: new AbortController().signal,
+            generation: 0,
           });
 
           const error = new Error(errorMessage);
