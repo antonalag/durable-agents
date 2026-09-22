@@ -342,6 +342,8 @@ const result = await idempotent(ctx, 'web-search', { query: 'AI agents' }, async
 >
 > `ctx.idempotent()` provides at-most-once semantics within a single living process, contingent on the outcome being durably persisted. If the process crashes between `fn()` execution and outcome persistence, the function will be called again on recovery — at-most-once is **not** guaranteed across crashes during the persistence window.
 >
+> **Concurrent same-key calls are not coordinated.** `idempotent()` checks for an existing outcome and, if none exists, runs `fn()` and records the result — there is no lock between the check and the write. If two calls with the *same* key run concurrently (in the same process or across processes), both may observe "no outcome yet" and both may execute `fn()`. The `UNIQUE(operation_key)` constraint still prevents duplicate *persistence* — the second `recordOutcome` is rejected — but the side effect inside `fn()` may have already run twice. There is deliberately no locking or single-flight coordination in v0.1.1.
+>
 > For external operations requiring stronger guarantees (e.g., sending payments, dispatching webhooks), pair with service-level idempotency keys provided by the downstream service.
 
 ---
@@ -947,6 +949,15 @@ const result = await withDurability(durableCtx, 'generate-summary', async () => 
   return await generateText({ model, prompt });
 });
 ```
+
+> **Operation-key contract (name uniqueness):**
+>
+> `withDurability` derives its operation key from the run id and the `name` only — `computeOperationKey(run.runId, name)`. It does **not** include a positional sequence. Within a single run, `name` is therefore the durable identity of the call:
+>
+> - **Give each distinct AI SDK call a unique `name` per run.** Two calls with different names produce distinct outcomes.
+> - **Reusing the same `name` in the same run targets the same durable outcome.** The second call returns the first call's cached result instead of executing again. This is what makes replay work on recovery, but if you reuse a `name` for a genuinely different call, the second call will silently return the first result rather than run.
+>
+> This differs from `ctx.step()`, which is keyed by position (`name` + sequence), so repeated `ctx.step('x', ...)` calls are distinct operations. For `withDurability`, uniqueness is on `name` alone.
 
 #### extractAiSdkTokens
 

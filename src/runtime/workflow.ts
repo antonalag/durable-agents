@@ -1,49 +1,31 @@
-import { createHash } from 'node:crypto';
 import type {
   BudgetConfig,
-  BudgetWarningEvent,
-  BudgetExceededEvent,
   EventMap,
   ExecutionRun,
   LoopConfig,
-  LoopDetectedEvent,
   RunConfig,
   RunStartedEvent,
   RunCompletedEvent,
   RunFailedEvent,
 } from '../core/types.js';
 import { DurableError } from '../errors.js';
-import { computeOperationKey } from '../serialization/operation-key.js';
 import type { JournalStore } from '../stores/interface.js';
-import { checkBudget } from './budget.js';
 import { validateRunConfig } from './config-validation.js';
 import { DurableContextImpl } from './context.js';
 import { EventBus } from './event-bus.js';
 import { Heartbeat } from './heartbeat.js';
-import { detectLoop, type StepRecord } from './loop-detector.js';
+import { installStepGovernance } from './step-governance.js';
 import { RecoveryEngine } from './recovery.js';
 
-export type RunPhase = 'running' | 'stopping' | 'terminated';
+export {
+  SUMMARY_STEP_TIMEOUT_MS,
+  withTimeout,
+  type RunPhase,
+  type TerminationReason,
+  type RunLifecycleState,
+} from './lifecycle.js';
 
-export type TerminationReason = 'budget_exceeded' | 'loop_detected' | 'kill_switch';
-
-export interface RunLifecycleState {
-  phase: RunPhase;
-  terminationReason?: TerminationReason;
-  summaryStepAllowed: boolean;
-}
-
-export const SUMMARY_STEP_TIMEOUT_MS = 30_000;
-
-export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Summary step timeout')), ms);
-    promise.then(
-      (v) => { clearTimeout(timer); resolve(v); },
-      (e) => { clearTimeout(timer); reject(e); },
-    );
-  });
-}
+import type { RunLifecycleState, TerminationReason } from './lifecycle.js';
 
 export interface DurableWorkflowOptions {
   store: JournalStore;
@@ -63,14 +45,6 @@ function composeSignals(external: AbortSignal, internal: AbortSignal): AbortSign
   external.addEventListener('abort', onAbort, { once: true });
   internal.addEventListener('abort', onAbort, { once: true });
   return controller.signal;
-}
-
-function hashResult(result: unknown): string {
-  try {
-    return createHash('sha256').update(JSON.stringify(result)).digest('hex');
-  } catch {
-    return '';
-  }
 }
 
 export class DurableWorkflow<TInput, TOutput> {
@@ -169,166 +143,21 @@ export class DurableWorkflow<TInput, TOutput> {
       generation,
     });
 
-    const originalStep = ctx.step.bind(ctx);
-    const stepHistory: StepRecord[] = [];
     const startTime = Date.now();
-    const warningsEmitted = new Set<string>();
     const requestGracefulStop = DurableWorkflow.createGracefulStopRequester(lifecycle);
-    let runningCost = 0;
 
-    const runBudgetCheckAndEmit = (): void => {
-      if (!this.budgetConfig) return;
-
-      const budgetResult = checkBudget({
-        totals: activeRun.totals,
-        elapsedMs: Date.now() - startTime,
-        config: this.budgetConfig,
-      });
-
-      if (budgetResult.status === 'warning' && budgetResult.triggeredBy && !warningsEmitted.has(budgetResult.triggeredBy)) {
-        warningsEmitted.add(budgetResult.triggeredBy);
-        this.eventBus.emit('budget:warning', {
-          type: 'budget:warning',
-          timestamp: new Date(),
-          runId: activeRun.runId,
-          currentCost: activeRun.totals.cost,
-          budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
-          percentUsed: budgetResult.percentUsed,
-        } satisfies BudgetWarningEvent);
-      }
-
-      if (budgetResult.status === 'exceeded') {
-        this.eventBus.emit('budget:exceeded', {
-          type: 'budget:exceeded',
-          timestamp: new Date(),
-          runId: activeRun.runId,
-          currentCost: activeRun.totals.cost,
-          budgetLimit: this.budgetConfig.maxCostUsd ?? 0,
-          action: 'graceful_stop',
-        } satisfies BudgetExceededEvent);
-        requestGracefulStop('budget_exceeded');
-      }
-    };
-
-    ctx.step = async <T>(name: string, fn: () => T | Promise<T>): Promise<T> => {
-      runBudgetCheckAndEmit();
-
-      if (lifecycle.phase === 'stopping') {
-        if (!lifecycle.summaryStepAllowed) {
-          throw new DOMException('The operation was aborted.', 'AbortError');
-        }
-        lifecycle.summaryStepAllowed = false;
-        try {
-          const summaryResult = await withTimeout(originalStep(name, fn), SUMMARY_STEP_TIMEOUT_MS);
-          lifecycle.phase = 'terminated';
-          return summaryResult;
-        } catch (err) {
-          lifecycle.phase = 'terminated';
-          throw err;
-        }
-      }
-
-      if (lifecycle.phase === 'terminated') {
-        throw new DOMException('The operation was aborted.', 'AbortError');
-      }
-
-      const seqBeforeStep = ctx.currentSequence;
-      const result = await originalStep(name, fn);
-
-      activeRun.totals.steps++;
-
-      const operationKey = computeOperationKey(activeRun.runId, name, seqBeforeStep);
-      const outcome = await this.store.getOutcomeByKey(operationKey);
-      if (outcome) {
-        runningCost += outcome.tokens.costUsd;
-        activeRun.totals.cost = runningCost;
-      }
-
-      if (this.loopConfig) {
-        stepHistory.push({
-          nodeName: name,
-          sequence: activeRun.totals.steps,
-          outputHash: hashResult(result),
-        });
-
-        const loopResult = detectLoop(stepHistory, this.loopConfig);
-        if (loopResult.detected) {
-          this.eventBus.emit('loop:detected', {
-            type: 'loop:detected',
-            timestamp: new Date(),
-            runId: activeRun.runId,
-            loopType: loopResult.loopType!,
-            detectedAtStep: activeRun.totals.steps,
-            repetitions: loopResult.repetitions!,
-          } satisfies LoopDetectedEvent);
-
-          if (loopResult.action === 'graceful_stop') {
-            requestGracefulStop('loop_detected');
-          }
-        }
-      }
-
-      return result;
-    };
-
-    const originalParallel = ctx.parallel.bind(ctx);
-
-    ctx.parallel = async <T>(
-      steps: Array<{ name: string; fn: () => T | Promise<T> }>,
-    ): Promise<T[]> => {
-      runBudgetCheckAndEmit();
-
-      if (lifecycle.phase === 'terminated' || lifecycle.phase === 'stopping') {
-        throw new DOMException('The operation was aborted.', 'AbortError');
-      }
-
-      const seqBeforeGroup = ctx.currentSequence;
-      const results = await originalParallel(steps);
-
-      activeRun.totals.steps += steps.length;
-
-      for (let i = 0; i < steps.length; i++) {
-        const key = computeOperationKey(activeRun.runId, steps[i].name, seqBeforeGroup + i);
-        if (!ctx.wasReplayed(key)) {
-          const outcome = await this.store.getOutcomeByKey(key);
-          if (outcome) {
-            runningCost += outcome.tokens.costUsd;
-          }
-        }
-      }
-      activeRun.totals.cost = runningCost;
-
-      runBudgetCheckAndEmit();
-
-      if (this.loopConfig) {
-        const stepsBase = activeRun.totals.steps - steps.length;
-        for (let i = 0; i < steps.length; i++) {
-          stepHistory.push({
-            nodeName: steps[i].name,
-            sequence: stepsBase + i + 1,
-            outputHash: hashResult(results[i]),
-          });
-        }
-
-        const loopResult = detectLoop(stepHistory, this.loopConfig);
-        if (loopResult.detected) {
-          this.eventBus.emit('loop:detected', {
-            type: 'loop:detected',
-            timestamp: new Date(),
-            runId: activeRun.runId,
-            loopType: loopResult.loopType!,
-            detectedAtStep: activeRun.totals.steps,
-            repetitions: loopResult.repetitions!,
-          } satisfies LoopDetectedEvent);
-
-          if (loopResult.action === 'graceful_stop') {
-            requestGracefulStop('loop_detected');
-          }
-        }
-      }
-
-      return results;
-    };
+    installStepGovernance({
+      ctx,
+      store: this.store,
+      budgetConfig: this.budgetConfig,
+      loopConfig: this.loopConfig,
+      eventBus: this.eventBus,
+      lifecycle,
+      activeRun,
+      initialRunningCost: 0,
+      startTime,
+      requestGracefulStop,
+    });
 
     try {
       const result = await this.fn(ctx, input);

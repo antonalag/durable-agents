@@ -3,6 +3,7 @@ import { SqliteJournalStore } from '../../src/stores/sqlite.js';
 import { DurableContextImpl } from '../../src/runtime/context.js';
 import { EventBus } from '../../src/runtime/event-bus.js';
 import { withDurability, type AiSdkDurableContext } from '../../src/adapters/ai-sdk.js';
+import { computeOperationKey } from '../../src/serialization/operation-key.js';
 import type { ExecutionRun } from '../../src/core/types.js';
 
 vi.mock('../../src/adapters/peer-check.js', () => ({
@@ -84,6 +85,68 @@ describe('withDurability', () => {
       const steps = await store.listSteps(run.runId);
       const step = steps.find((s) => s.nodeName === 'complete-step');
       expect(step?.status).toBe('completed');
+    });
+
+    it('records zero tokens and emits nothing when the response lacks usage data', async () => {
+      const seen: string[] = [];
+      const spy = (event: { type: string }) => seen.push(event.type);
+      // Subscribe by raw type name to catch any event, including one that no
+      // longer exists in the typed event map.
+      (eventBus as unknown as { on(type: string, handler: (e: { type: string }) => void): void }).on(
+        'adapter:warning',
+        spy,
+      );
+
+      await withDurability(durableCtx, 'no-usage', async () => ({ text: 'reply' }));
+
+      expect(seen).toHaveLength(0);
+
+      const steps = await store.listSteps(run.runId);
+      const step = steps.find((s) => s.nodeName === 'no-usage')!;
+      const outcomes = await store.listOutcomes(step.stepId);
+      expect(outcomes[0].tokens.inputTokens).toBe(0);
+      expect(outcomes[0].tokens.outputTokens).toBe(0);
+      expect(outcomes[0].tokens.costUsd).toBe(0);
+    });
+  });
+
+  describe('operation-key contract', () => {
+    it('treats two calls with the same name in one run as the same operation', async () => {
+      const first = { text: 'first', usage: { promptTokens: 10, completionTokens: 5 } };
+      const second = { text: 'second', usage: { promptTokens: 99, completionTokens: 99 } };
+
+      const r1 = await withDurability(durableCtx, 'shared-name', async () => first);
+      const r2 = await withDurability(durableCtx, 'shared-name', async () => second);
+
+      // The second call replays the first outcome instead of running again.
+      expect(r1).toEqual(first);
+      expect(r2).toEqual(first);
+
+      const outcome = await store.getOutcomeByKey(
+        computeOperationKey(run.runId, 'shared-name'),
+      );
+      expect(outcome).not.toBeNull();
+      expect(outcome!.result).toEqual(first);
+    });
+
+    it('treats calls with different names as distinct operations', async () => {
+      const a = { text: 'a', usage: { promptTokens: 1, completionTokens: 1 } };
+      const b = { text: 'b', usage: { promptTokens: 2, completionTokens: 2 } };
+
+      const ra = await withDurability(durableCtx, 'name-a', async () => a);
+      const rb = await withDurability(durableCtx, 'name-b', async () => b);
+
+      expect(ra).toEqual(a);
+      expect(rb).toEqual(b);
+
+      const keyA = computeOperationKey(run.runId, 'name-a');
+      const keyB = computeOperationKey(run.runId, 'name-b');
+      expect(keyA).not.toBe(keyB);
+
+      const outcomeA = await store.getOutcomeByKey(keyA);
+      const outcomeB = await store.getOutcomeByKey(keyB);
+      expect(outcomeA!.result).toEqual(a);
+      expect(outcomeB!.result).toEqual(b);
     });
   });
 

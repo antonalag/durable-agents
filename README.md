@@ -1,7 +1,7 @@
 [![CI](https://github.com/antonalag/durable-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/antonalag/durable-agents/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/durable-agents)](https://www.npmjs.com/package/durable-agents)
 [![license](https://img.shields.io/github/license/antonalag/durable-agents)](./LICENSE)
-[![bundle size](https://img.shields.io/badge/core_bundle-27.8_KB-brightgreen)]()
+[![bundle size](https://img.shields.io/badge/core_bundle-35.4_KB-brightgreen)]()
 
 # durable-agents
 
@@ -52,8 +52,8 @@ sequenceDiagram
 - **CLI** — `npx durable-agents dashboard` / `npx durable-agents recover`
 - **Event hooks** — `workflow.on('budget:warning', handler)`
 - **Config validation** — descriptive errors at construction time
-- **27.8 KB** core bundle (minified, tree-shakeable)
-- **324 tests** with 34 property-based correctness proofs
+- **~35 KB** core bundle (minified, tree-shakeable)
+- **451 tests** with 32 property-based test suites
 
 ---
 
@@ -64,7 +64,7 @@ sequenceDiagram
 | **Setup** | `npm install` + 3 lines | DIY (hours) | Server + workers (days) | Medium effort |
 | **Recovery granularity** | Per-step | Per-checkpoint | Per-activity | Varies |
 | **Framework support** | LangGraph, AI SDK | Manual | Generic | Manual |
-| **Runtime overhead** | 27.8 KB | ~0 | ~50 MB server | Varies |
+| **Runtime overhead** | ~35 KB | ~0 | ~50 MB server | Varies |
 | **Learning curve** | Minutes | Hours | Days | Hours |
 | **Budget/loop controls** | Built-in | DIY | External | DIY |
 
@@ -91,6 +91,21 @@ const result = await workflow.run({ query: 'durable execution patterns' });
 ```
 
 If the process crashes after `research` completes, restarting replays that step from the journal — **cached result replayed, no LLM cost for journaled steps.**
+
+### Using PostgreSQL
+
+`SqliteJournalStore` creates its schema in the constructor, so the example above works immediately. `PostgresJournalStore` does **not** migrate implicitly: you must call `migrate()` once before using the store.
+
+```typescript
+import { DurableWorkflow, PostgresJournalStore } from 'durable-agents';
+
+const store = new PostgresJournalStore({ connectionString: process.env.DATABASE_URL });
+await store.migrate(); // create/upgrade schema — required before first use, idempotent
+
+const workflow = new DurableWorkflow('my-agent', myFn, { store });
+```
+
+Skipping `migrate()` and using the store directly fails with a PostgreSQL `relation "runs" does not exist` error. The fix is to run `migrate()` first. Migration is idempotent, so calling it on every startup is safe.
 
 ---
 

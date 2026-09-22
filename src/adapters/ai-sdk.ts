@@ -42,7 +42,7 @@ export async function withDurability<T>(
     );
   }
 
-  const { store, ctx, eventBus } = durableCtx;
+  const { store, ctx } = durableCtx;
   const operationKey = computeOperationKey(ctx.run.runId, name);
 
   // On replay, return the stored result without re-executing (avoids
@@ -83,20 +83,6 @@ export async function withDurability<T>(
         throw new DurableError('INVALID_CONFIG', `costFunction returned invalid value: ${costUsd}`);
       }
       tokens.costUsd = costUsd;
-    }
-
-    if (tokens.inputTokens === 0 && tokens.outputTokens === 0) {
-      (eventBus as unknown as { emit(type: string, event: unknown): void }).emit(
-        'adapter:warning',
-        {
-          type: 'adapter:warning',
-          timestamp: new Date(),
-          runId: ctx.run.runId,
-          stepId,
-          nodeName: name,
-          message: `AI SDK response for step "${name}" has no token usage metadata`,
-        },
-      );
     }
 
     await store.recordOutcome({
