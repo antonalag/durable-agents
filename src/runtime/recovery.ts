@@ -4,6 +4,8 @@ import type { JournalStore } from '../stores/interface.js';
 import { DurableContextImpl } from './context.js';
 import { EventBus } from './event-bus.js';
 import { Heartbeat } from './heartbeat.js';
+import type { RunLifecycleState, TerminationReason } from './lifecycle.js';
+import { installStepGovernance } from './step-governance.js';
 import type { WorkflowFn } from './workflow.js';
 
 function isFenced(error: unknown): boolean {
@@ -74,6 +76,30 @@ export class RecoveryEngine {
       generation,
     });
 
+    // Recovery is governed by the same rules as normal execution. The loaded
+    // run is the activeRun, so totals.steps/totals.cost start at their persisted
+    // pre-crash values; the seam accumulates fresh recovery steps on top.
+    const lifecycle: RunLifecycleState = { phase: 'running', summaryStepAllowed: true };
+    const requestGracefulStop = (reason: TerminationReason): void => {
+      if (lifecycle.phase === 'running') {
+        lifecycle.phase = 'stopping';
+        lifecycle.terminationReason = reason;
+      }
+    };
+
+    installStepGovernance({
+      ctx,
+      store: this.store,
+      budgetConfig: run.config.budget,
+      loopConfig: run.config.loopDetection,
+      eventBus: this.eventBus,
+      lifecycle,
+      activeRun: run,
+      initialRunningCost: initialCost,
+      startTime: Date.now(),
+      requestGracefulStop,
+    });
+
     heartbeat.start();
 
     try {
@@ -87,7 +113,6 @@ export class RecoveryEngine {
         status: 'completed',
         totals: {
           ...run.totals,
-          cost: initialCost,
           recoveryCount: run.totals.recoveryCount + 1,
         },
       }, generation);
@@ -110,6 +135,31 @@ export class RecoveryEngine {
       if (isFenced(error)) {
         abortController.abort();
         throw error;
+      }
+
+      // A graceful stop (budget/loop) aborts through the same AbortError path as
+      // normal execution; it is a controlled stop, not a failure, so it writes a
+      // terminal 'terminated' state rather than 'failed'.
+      if (
+        (error instanceof Error && error.name === 'AbortError') ||
+        lifecycle.phase === 'terminated' ||
+        lifecycle.phase === 'stopping'
+      ) {
+        const reason = lifecycle.terminationReason ?? 'budget_exceeded';
+        try {
+          await this.store.updateRun(runId, {
+            status: 'terminated',
+            totals: { ...run.totals, recoveryCount: run.totals.recoveryCount + 1 },
+            metadata: { ...run.metadata, terminationReason: reason },
+          }, generation);
+        } catch (writeError) {
+          if (isFenced(writeError)) {
+            abortController.abort();
+            throw writeError;
+          }
+          throw writeError;
+        }
+        return undefined as never;
       }
 
       await this.store.updateRun(runId, { status: 'failed' }, generation);

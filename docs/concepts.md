@@ -204,6 +204,8 @@ Steps are ordered by a `sequence` number (0-indexed) that determines their posit
 
 The `ctx.parallel()` method executes multiple steps concurrently. Each parallel branch gets its own sequence number (allocated contiguously), its own step record, and its own outcome. If any branch fails, the error propagates after all branches settle (using `Promise.allSettled` internally).
 
+> **Limitation — sibling branches are not cancelled on failure.** When one branch fails, `ctx.parallel()` waits for all branches to settle and then throws the first rejection; it does not abort the siblings. A sibling that was still executing when the group failed may already have persisted its outcome, or may be left as a step in `running` state. Because the run then fails and can later be recovered, such a sibling can be **re-executed during recovery** (or replayed from its persisted outcome if it completed). This is accepted behavior in v0.1.1; parallel branch cancellation is deferred to v0.2. As with any re-execution window, guard non-idempotent side effects in parallel branches with external idempotency keys.
+
 ## Event System
 
 The runtime emits typed events throughout a workflow's lifecycle. You can subscribe to these events for monitoring, logging, alerting, or building custom UIs like the built-in dashboard.
@@ -319,6 +321,7 @@ Replayed cached outcomes remain harmless, and fresh steps from the loser are blo
 
 - **Single database.** The fence serializes claims and writes against one store (PostgreSQL row-level locking; SQLite single-process synchronicity). It is not a substitute for distributed leader election across independent databases.
 - **Side-effect window.** A crash between `fn()` returning and `recordOutcome()` persisting can still re-execute an external side effect on recovery. Pair non-idempotent side effects with external idempotency keys.
+- **Concurrent same-key `idempotent()` is not single-flighted.** Two concurrent calls with the same operation key (same process or across processes) can both find no persisted outcome and both run `fn()`. The `UNIQUE(operation_key)` constraint still prevents duplicate persistence — only one outcome is stored — but the side effect may have run twice. There is deliberately no in-process lock or single-flight coordination in v0.1.1; use external idempotency keys for non-idempotent side effects.
 - **LangGraph adapter.** The LangGraph adapter recovery path is deliberately outside the fence: it uses a create-new-run model (marks matching stale runs failed, starts a fresh run) rather than reclaiming a generation.
 
 ### Safe Deployment Patterns

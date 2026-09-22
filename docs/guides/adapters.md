@@ -214,7 +214,7 @@ The adapter reads the AI SDK's standard response shape:
 // These are recorded in the journal for cost tracking.
 ```
 
-If the response doesn't include usage data, the adapter emits an `adapter:warning` event.
+If the response doesn't include usage data, token counts default to zero and no cost is attributed to that step.
 
 ### Full Example
 

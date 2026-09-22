@@ -15,7 +15,8 @@
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/ tests/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json"
   },
   "exports": {
     ".": {
