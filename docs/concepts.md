@@ -101,6 +101,8 @@ The `computeOperationKey` function:
 - **Collision avoidance** — SHA-256 with distinct inputs makes accidental collisions effectively impossible.
 - **Cross-restart stability** — the key doesn't depend on timestamps or random IDs, so it's identical across process restarts.
 
+Because keys are positional (`runId + stepName + sequence`), they stop matching if the workflow's step names or order change between the original run and recovery. To make recovery across such changes explicit and safe — rather than silently re-executing or replaying a stale result — declare a `workflowVersion`; see [Workflow Version Compatibility](./guides/recovery.md#workflow-version-compatibility).
+
 ### Usage in the Idempotent Decorator
 
 The `idempotent` function uses the same mechanism for tool calls. You provide a custom operation key (or let the system compute one), and the store is checked before executing:

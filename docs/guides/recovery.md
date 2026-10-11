@@ -271,6 +271,63 @@ This is single-database fencing for the documented single-store deployment model
 
 ### Non-Deterministic Workflow Changes
 
-If the workflow function has changed between the original execution and recovery (e.g., steps were reordered or renamed), the operation keys will not match. The recovery will treat all steps as fresh and re-execute them. This is safe but defeats the purpose of replay — the previously cached results will be orphaned.
+Operation keys are positional: `SHA-256(runId + stepName + sequence)`. If the workflow changes between the original execution and recovery, keys can silently stop matching:
 
-To avoid this, ensure workflow logic is stable before recovering stale runs from a previous deployment.
+- **Renaming** a step makes that step a cache miss (it re-executes); later steps keep their positions and still replay.
+- **Inserting or reordering** steps shifts the sequence of everything after the change, so the whole suffix becomes cache misses and re-executes.
+- **Changing a step's implementation while keeping its name and position** does the opposite and more dangerous thing: the stale cached outcome is replayed as-is and the new implementation never runs for that step.
+
+Without a declared version this is accepted-but-silent behavior. To make it explicit and safe, use `workflowVersion` (below).
+
+## Workflow Version Compatibility
+
+`workflowVersion` is an opt-in token you attach to a workflow so recovery can refuse to replay a journal that your current code can no longer honor. It turns the silent re-execution / stale-reuse above into a loud, safe failure.
+
+```typescript
+const workflow = new DurableWorkflow('research-agent', agentFn, {
+  store,
+  workflowVersion: 'research-agent@3',
+});
+```
+
+The same token is accepted by the LangGraph adapter config (`createDurableMiddleware({ store, config: { name, workflowVersion } })`).
+
+### Compatibility matrix
+
+Recovery compares the token persisted in the run against your current token:
+
+| Persisted (journal) | Current (workflow) | Result |
+|---|---|---|
+| none | none | **Replay** — legacy positional behavior, unchanged |
+| `v` | `v` (equal) | **Replay** |
+| `v1` | `v2` (differ) | **Reject** — `DurableError('INCOMPATIBLE_RECOVERY')` |
+| none | `v1` | **Reject** |
+| `v1` | none | **Reject** |
+
+The two asymmetric rejections are deliberate: once you adopt versions, a journal that cannot prove it is compatible is refused rather than guessed. The check runs **before** any step is replayed, any step is re-executed, or any run state is written, so a rejection:
+
+- replays and re-executes **nothing**;
+- leaves the run in its pre-recovery state (`recovering`/stale for the core engine; the stale run is left untouched by the LangGraph adapter), so it remains re-drivable;
+- surfaces a `DurableError` whose code is `INCOMPATIBLE_RECOVERY` and whose message names both versions and the run id.
+
+Under `autoRecover`, an incompatible stale run is simply skipped (its claim advances the generation but it is never completed); deploy a workflow carrying the matching version to recover it, or discard the run.
+
+### Adoption and legacy journals
+
+Because the gate is opt-in, existing journals (which carry no version) keep replaying as before **until** you add a `workflowVersion`. The moment you deploy a version, any in-flight runs journaled **before** that deploy fall under "persisted none / current versioned" and are refused by design. Adopt `workflowVersion` when there are no critical runs in flight, or accept that pre-adoption runs will require manual intervention. There is intentionally no legacy opt-out flag — the refusal is the safety property.
+
+### When to bump the version
+
+The runtime does **not** inspect your code or detect semantic changes. Bumping the token is your responsibility. Increment it whenever a change could make a previously-journaled outcome wrong or mis-aligned, including:
+
+- **Step semantics** — a step with the same name now computes a different result, calls a different model/prompt, or hits a different endpoint.
+- **Step names** — renaming any `ctx.step` / node label.
+- **Ordering** — reordering steps, or inserting/removing a step.
+- **Conditional branches** — a change that alters which steps run, or in what order, for the same input.
+- **Parallel groups** — adding, removing, renaming, or reordering branches in a `ctx.parallel()` group (branch sequence numbers are positional).
+
+If in doubt, bump it: a false "incompatible" rejection costs you a re-run, while a false "compatible" acceptance can silently serve a wrong cached result.
+
+### What this does not guarantee
+
+`workflowVersion` protects the **journal replay** boundary only. It does not provide exactly-once execution of external side effects: the window between a step's `fn()` returning and its outcome being persisted still exists, and a crash there can re-execute the side effect on recovery regardless of version. Guard non-idempotent side effects with external idempotency keys, as described in [Core Concepts](../concepts.md#crash-window-side-effect-window).

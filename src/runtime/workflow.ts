@@ -35,6 +35,8 @@ export interface DurableWorkflowOptions {
   eventBus?: EventBus;
   budget?: BudgetConfig;
   loopDetection?: LoopConfig;
+  /** Opt-in recovery compatibility token. See RunConfig.workflowVersion. */
+  workflowVersion?: string;
 }
 
 export type WorkflowFn<TInput, TOutput> = (ctx: DurableContextImpl, input: TInput) => Promise<TOutput>;
@@ -57,6 +59,7 @@ export class DurableWorkflow<TInput, TOutput> {
   private staleTimeoutMs: number;
   private budgetConfig: BudgetConfig | undefined;
   private loopConfig: LoopConfig | undefined;
+  private workflowVersion: string | undefined;
   private activeRuns = new Map<string, AbortController>();
   private lifecycleStates = new Map<string, RunLifecycleState>();
   /** Fencing generation each active run holds; the source of truth for terminate(). */
@@ -81,6 +84,7 @@ export class DurableWorkflow<TInput, TOutput> {
     this.staleTimeoutMs = staleTimeoutMs;
     this.budgetConfig = opts.budget;
     this.loopConfig = opts.loopDetection;
+    this.workflowVersion = opts.workflowVersion;
     this.eventBus = opts.eventBus ?? new EventBus();
 
     if (opts.autoRecover) {
@@ -106,6 +110,7 @@ export class DurableWorkflow<TInput, TOutput> {
 
     const config: RunConfig = {
       name: this.name,
+      workflowVersion: this.workflowVersion,
       heartbeatIntervalMs: this.heartbeatIntervalMs,
       staleTimeoutMs: this.staleTimeoutMs,
       budget: this.budgetConfig,
@@ -319,7 +324,13 @@ export class DurableWorkflow<TInput, TOutput> {
       // refuses it rather than writing against a generation it does not hold.
       try {
         const input = run.metadata?.input as TInput;
-        await recoveryEngine.recover(claim.run.runId, this.fn, input, claim.generation);
+        await recoveryEngine.recover(
+          claim.run.runId,
+          this.fn,
+          input,
+          claim.generation,
+          this.workflowVersion,
+        );
       } catch {
         // Isolate failures: RecoveryEngine already handled its own terminal
         // state, so keep recovering the remaining stale runs.
