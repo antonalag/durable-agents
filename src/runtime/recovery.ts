@@ -12,6 +12,41 @@ function isFenced(error: unknown): boolean {
   return error instanceof DurableError && error.code === 'FENCED';
 }
 
+/**
+ * Enforces the opt-in workflow-version compatibility matrix before any replay
+ * cursor is built or any step runs. Throws DurableError('INCOMPATIBLE_RECOVERY')
+ * when the persisted and current tokens disagree, including the asymmetric
+ * cases where only one side declares a version:
+ *
+ *   persisted \ current | undefined        | defined
+ *   --------------------|------------------|-----------------------------
+ *   undefined           | allow (legacy)   | reject
+ *   defined             | reject           | allow iff equal, else reject
+ *
+ * Call this before listSteps/cursor construction and before marking any state,
+ * so a rejection leaves the run untouched (recovering/stale) and re-drivable.
+ */
+export function assertRecoveryCompatible(
+  runId: string,
+  persistedVersion: string | undefined,
+  currentVersion: string | undefined,
+): void {
+  if (persistedVersion === undefined && currentVersion === undefined) {
+    return;
+  }
+  if (persistedVersion === currentVersion) {
+    return;
+  }
+  const persisted = persistedVersion ?? '(none)';
+  const current = currentVersion ?? '(none)';
+  throw new DurableError(
+    'INCOMPATIBLE_RECOVERY',
+    `Run ${runId} cannot be recovered: persisted workflowVersion ${persisted} ` +
+      `is incompatible with the current workflowVersion ${current}. No steps were ` +
+      `replayed or re-executed. Recover with a matching workflow version, or discard the run.`,
+  );
+}
+
 export class RecoveryEngine {
   constructor(
     private store: JournalStore,
@@ -28,11 +63,18 @@ export class RecoveryEngine {
     fn: WorkflowFn<TInput, TOutput>,
     input: TInput,
     generation: number,
+    currentWorkflowVersion?: string,
   ): Promise<TOutput> {
     const run = await this.store.getRun(runId);
     if (!run) {
       throw new Error(`Run not found: ${runId}`);
     }
+
+    // Gate recovery on version compatibility before any cursor is built, any
+    // heartbeat starts, or any step runs. A rejection here leaves the claimed
+    // run in 'recovering' with no terminal write, so it stays re-drivable once
+    // a compatible workflow version is deployed.
+    assertRecoveryCompatible(runId, run.config.workflowVersion, currentWorkflowVersion);
 
     const steps = await this.store.listSteps(runId);
 

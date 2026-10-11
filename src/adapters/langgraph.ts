@@ -15,6 +15,7 @@ import { EventBus } from '../runtime/event-bus.js';
 import { Heartbeat } from '../runtime/heartbeat.js';
 import { assertPeerDependency } from './peer-check.js';
 import { computeOperationKey } from '../serialization/operation-key.js';
+import { assertRecoveryCompatible } from '../runtime/recovery.js';
 import { DurableError } from '../errors.js';
 
 export function extractLangGraphTokens(response: unknown): TokenCost {
@@ -71,6 +72,16 @@ export function createDurableMiddleware(options: LangGraphDurableOptions): Durab
 
     if (matching.length > 0) {
       const mostRecent = matching[0];
+
+      // Gate replay on version compatibility before any cursor is built or any
+      // stale run is marked failed. A rejection leaves every matching stale run
+      // untouched and re-drivable once a compatible version is deployed.
+      assertRecoveryCompatible(
+        mostRecent.runId,
+        mostRecent.config.workflowVersion,
+        config.workflowVersion,
+      );
+
       originalRunId = mostRecent.runId;
       try {
         const steps = await store.listSteps(mostRecent.runId);

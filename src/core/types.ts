@@ -48,6 +48,16 @@ export interface LoopConfig {
 export interface RunConfig {
   /** Unique name identifying this workflow definition. */
   name: string;
+  /**
+   * Opt-in compatibility token for recovery. Bump it whenever a change could
+   * invalidate a persisted outcome: step semantics, step names, ordering,
+   * conditional branches, or parallel groups. Recovery compares the persisted
+   * value against the current one and refuses to replay when they disagree
+   * (DurableError 'INCOMPATIBLE_RECOVERY'). The runtime does NOT auto-detect
+   * semantic changes — maintaining this value is the author's responsibility.
+   * Leave undefined to keep the legacy positional-replay behavior.
+   */
+  workflowVersion?: string;
   maxSteps?: number;
   budget?: BudgetConfig;
   loopDetection?: LoopConfig;
