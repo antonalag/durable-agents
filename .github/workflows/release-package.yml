@@ -1,0 +1,301 @@
+name: Release Package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag to build (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-validate:
+    name: Build, gate, pack and validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+    steps:
+      - name: Checkout exact tagged commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.14.0'
+          cache: 'pnpm'
+
+      - name: Pin npm for Trusted Publishing (>= 11.5.1)
+        run: npm install -g npm@11
+      - name: Record toolchain versions
+        run: |
+          echo "node: $(node --version)"
+          echo "npm:  $(npm --version)"
+          echo "pnpm: $(pnpm --version)"
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag matches package.json version
+        id: version
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          RAW_REF="${{ github.event.inputs.ref || github.ref_name }}"
+          TAG_VERSION="${RAW_REF#v}"
+          echo "package.json version: ${PKG_VERSION}"
+          echo "git tag:              ${RAW_REF} (version ${TAG_VERSION})"
+          if [ "${PKG_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "::error::Version mismatch: tag '${TAG_VERSION}' != package.json '${PKG_VERSION}'"
+            exit 1
+          fi
+          echo "version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Production typecheck
+        run: pnpm typecheck
+
+      - name: Test typecheck
+        run: pnpm typecheck:tests
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test suite
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Pack (npm pack)
+        id: pack
+        run: |
+          set -euo pipefail
+          TARBALL="$(npm pack --silent)"
+          echo "Generated tarball: ${TARBALL}"
+          test -f "${TARBALL}"
+          EXPECTED="durable-agents-${{ steps.version.outputs.version }}.tgz"
+          if [ "${TARBALL}" != "${EXPECTED}" ]; then
+            echo "::error::Unexpected tarball name '${TARBALL}', expected '${EXPECTED}'"
+            exit 1
+          fi
+          sha256sum "${TARBALL}" > "${TARBALL}.sha256"
+          echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect tarball contents (no unintended files)
+        run: |
+          set -euo pipefail
+          TARBALL="${{ steps.pack.outputs.tarball }}"
+          echo "=== tarball contents ==="
+          tar -tzf "${TARBALL}" | sort | tee /tmp/contents.txt
+          # Every published path must live under package/dist, or be one of the
+          # allowed top-level metadata files. Anything else fails the release.
+          UNEXPECTED="$(grep -vE '^package/dist/|^package/(package\.json|README\.md|LICENSE)$' /tmp/contents.txt || true)"
+          if [ -n "${UNEXPECTED}" ]; then
+            echo "::error::Unexpected files in tarball:"
+            echo "${UNEXPECTED}"
+            exit 1
+          fi
+          # Guard against build-only / secret-ish artifacts leaking in.
+          if grep -qiE 'tsup|import-meta|\.env|\.npmrc|/tests?/|\.kiro|/src/|\.pem|id_rsa' /tmp/contents.txt; then
+            echo "::error::Tarball contains build-only, source, test, or secret-like files"
+            exit 1
+          fi
+
+      - name: Validate tarball in a clean external consumer
+        run: |
+          set -euo pipefail
+          TARBALL_ABS="$PWD/${{ steps.pack.outputs.tarball }}"
+          CONSUMER="$(mktemp -d)"
+          cp "${TARBALL_ABS}" "${CONSUMER}/"
+          cd "${CONSUMER}"
+
+          cat > package.json <<'JSON'
+          {
+            "name": "da-release-consumer",
+            "version": "1.0.0",
+            "private": true,
+            "type": "module"
+          }
+          JSON
+
+          # npm 12 disables dependency lifecycle scripts by default. This install
+          # intentionally keeps that secure default (no --allow-scripts): the only
+          # native dependency, better-sqlite3@13, ships prebuilt binaries in its
+          # own tarball (prebuilds/linux-x64.node, ...) and has no install script,
+          # so it loads without any node-gyp build. If a future dependency needs a
+          # build step, allow it narrowly with `--allow-scripts <pkg>` rather than
+          # weakening the default globally.
+          echo "=== install generated tarball (npm defaults, scripts NOT allowed) ==="
+          npm install "./${{ steps.pack.outputs.tarball }}" --no-audit --no-fund
+
+          echo "=== CJS: root + all subpaths must require() cleanly ==="
+          cat > cjs.cjs <<'JS'
+          const mods = ['durable-agents','durable-agents/langgraph','durable-agents/ai-sdk','durable-agents/dashboard'];
+          let bad = 0;
+          for (const m of mods) {
+            try { require(m); console.log('CJS OK  ' + m); }
+            catch (e) { console.error('CJS FAIL ' + m + ' -> ' + e.name + ': ' + String(e.message).split('\n')[0]); bad++; }
+          }
+          if (bad) process.exit(1);
+          JS
+          node cjs.cjs
+
+          echo "=== ESM: root + all subpaths must import cleanly ==="
+          cat > esm.mjs <<'JS'
+          import assert from 'node:assert';
+          const root = await import('durable-agents');
+          const lg = await import('durable-agents/langgraph');
+          const ai = await import('durable-agents/ai-sdk');
+          const dash = await import('durable-agents/dashboard');
+          assert.equal(typeof root.DurableWorkflow, 'function');
+          assert.equal(typeof root.SqliteJournalStore, 'function');
+          assert.equal(typeof lg.createDurableMiddleware, 'function');
+          assert.equal(typeof ai.withDurability, 'function');
+          assert.equal(typeof dash.startDashboard, 'function');
+          console.log('ESM OK root + subpaths');
+          JS
+          node esm.mjs
+
+          echo "=== SQLite smoke workflow (exercises better-sqlite3 prebuilt binary) ==="
+          cat > smoke.mjs <<'JS'
+          import { DurableWorkflow, SqliteJournalStore } from 'durable-agents';
+          import assert from 'node:assert';
+          import { rmSync } from 'node:fs';
+          rmSync('./smoke.db', { force: true });
+          const store = new SqliteJournalStore('./smoke.db');
+          let calls = 0;
+          const wf = new DurableWorkflow('smoke', async (ctx, input) => {
+            const a = await ctx.step('a', async () => { calls++; return input.n * 2; });
+            return ctx.step('b', async () => { calls++; return a + 1; });
+          }, { store });
+          const out = await wf.run({ n: 21 });
+          assert.equal(out, 43);
+          assert.equal(calls, 2);
+          const runs = await store.listRuns();
+          assert.equal(runs.length, 1);
+          assert.equal(runs[0].status, 'completed');
+          store.close();
+          console.log('SQLite smoke OK');
+          JS
+          node smoke.mjs
+
+          echo "=== CLI / bin entry ==="
+          node node_modules/.bin/durable-agents help | head -1
+          node node_modules/.bin/durable-agents recover --db ./cli-smoke.db
+
+          echo "=== TypeScript consumer with skipLibCheck: false ==="
+          npm install --no-save --ignore-scripts typescript@5.7.3
+          cat > tsconfig.json <<'JSON'
+          {
+            "compilerOptions": {
+              "target": "ES2022",
+              "module": "NodeNext",
+              "moduleResolution": "NodeNext",
+              "strict": true,
+              "esModuleInterop": true,
+              "skipLibCheck": false,
+              "noEmit": true,
+              "types": []
+            },
+            "include": ["consumer.ts"]
+          }
+          JSON
+          cat > consumer.ts <<'TS'
+          import { DurableWorkflow, SqliteJournalStore, PostgresJournalStore } from 'durable-agents';
+          import { createDurableMiddleware } from 'durable-agents/langgraph';
+          import { withDurability } from 'durable-agents/ai-sdk';
+          import { startDashboard } from 'durable-agents/dashboard';
+          const store = new SqliteJournalStore(':memory:');
+          const wf = new DurableWorkflow<{ q: string }, string>('t', async (ctx, i) => ctx.step('s', async () => i.q), { store });
+          async function main(): Promise<void> {
+            void (await wf.run({ q: 'x' }));
+            const pg = new PostgresJournalStore({ connectionString: 'postgres://localhost/x', max: 5 });
+            await pg.migrate();
+            void createDurableMiddleware; void withDurability; void startDashboard;
+          }
+          void main;
+          TS
+          node node_modules/typescript/bin/tsc -p tsconfig.json
+          echo "TypeScript skipLibCheck:false OK"
+
+      - name: Upload validated tarball + checksum
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-package
+          path: |
+            ${{ steps.pack.outputs.tarball }}
+            ${{ steps.pack.outputs.tarball }}.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish validated tarball (OIDC, disabled)
+    needs: build-validate
+    runs-on: ubuntu-latest
+    if: ${{ false }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.14.0'
+
+      - name: Pin npm for Trusted Publishing (>= 11.5.1)
+        run: npm install -g npm@11
+
+      - name: Download the validated tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-package
+
+      - name: Verify checksum of the downloaded tarball
+        run: sha256sum --check "durable-agents-${{ needs.build-validate.outputs.version }}.tgz.sha256"
+
+      - name: Publish the exact validated tarball (Trusted Publishing + provenance)
+        run: npm publish "durable-agents-${{ needs.build-validate.outputs.version }}.tgz" --provenance --access public
+
+  github-release:
+    name: Publish the draft GitHub Release with the validated tarball
+    # Runs ONLY after BOTH build-validate AND publish succeed. Final coherence
+    # gate: the human-created DRAFT release is made public only once the exact
+    # same .tgz has been published to npm. If any validation or the npm publish
+    # fails, this job is skipped and the release stays a draft; npm gets nothing.
+    needs: [build-validate, publish]
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    permissions:
+      contents: write
+    steps:
+      - name: Download the validated tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-package
+
+      - name: Publish draft release and attach the validated artifact
+        # The release for this tag already exists as a DRAFT (the single manual
+        # action). action-gh-release finds the existing release by tag_name and
+        # UPDATES it instead of creating a second one; draft:false flips that
+        # draft to published. tag_name and name are set explicitly (not omitted)
+        # to resolve the draft deterministically and avoid the draft->published
+        # ambiguity in softprops/action-gh-release#772. Only attaches the already
+        # validated .tgz/.sha256 — no build, no pack.
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 # v2.0.8
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          generate_release_notes: true
+          files: |
+            durable-agents-${{ needs.build-validate.outputs.version }}.tgz
+            durable-agents-${{ needs.build-validate.outputs.version }}.tgz.sha256
